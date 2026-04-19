@@ -1,0 +1,113 @@
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
+import { getMyTrips } from '../api/client';
+import type { Trip } from '../types';
+import { PageHead } from '../components/PageHead';
+import { StatusChip } from '../components/StatusChip';
+import { Icon } from '../components/Icon';
+import { EmptyState, InlineError, SkeletonRow } from '../components/EmptyState';
+
+export function PassengerHistoryPage() {
+  const { user } = useAuth();
+  const [trips, setTrips] = useState<Trip[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () => {
+    if (!user) return;
+    setError(null);
+    getMyTrips(user.id).then(setTrips).catch((e) => setError(e instanceof Error ? e.message : 'Could not load trips.'));
+  };
+  useEffect(load, [user]);
+
+  return (
+    <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
+      <PageHead
+        eyebrow="Passenger · History"
+        title={<>Your <span className="sr-italic">ledger</span>.</>}
+        lede="Every trip, every fare, every receipt. Nothing lost."
+      />
+
+      {error && <InlineError message={error} onRetry={load} />}
+
+      {!error && trips == null && <div className="sr-card p-6"><SkeletonRow lines={4} /></div>}
+
+      {trips && trips.length === 0 && (
+        <div className="sr-card">
+          <EmptyState
+            icon="history"
+            title="No trips yet"
+            body="When you book your first ride, it'll show up here with a receipt."
+            action={<Link to="/passenger/book" className="sr-btn sr-btn--primary sr-btn--sm"><Icon name="plus" size={13} /> Book a ride</Link>}
+          />
+        </div>
+      )}
+
+      {trips && trips.length > 0 && (
+        <>
+          {/* Desktop table */}
+          <div className="sr-card p-0 overflow-hidden hidden md:block">
+            <table className="sr-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Route</th>
+                  <th style={{ width: 120 }}>Status</th>
+                  <th style={{ width: 100, textAlign: 'right' }}>Fare</th>
+                  <th style={{ width: 160, textAlign: 'right' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trips.map((t) => (
+                  <tr key={t.id}>
+                    <td className="sr-table__num">{new Date(t.createdAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+                    <td>
+                      <div className="text-[14px]">{t.pickup.label} <span className="text-ink-4">→</span> {t.dropoff.label}</div>
+                      <div className="sr-small">{t.distanceMi} mi</div>
+                    </td>
+                    <td><StatusChip status={t.status} /></td>
+                    <td style={{ textAlign: 'right', fontFamily: 'var(--sr-mono)' }}>
+                      {t.fare != null ? `$${t.fare.toFixed(2)}` : <span className="text-ink-4">—</span>}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      {t.status === 'Completed' ? (
+                        <Link to={`/passenger/trip/${t.id}/receipt`} className="sr-btn sr-btn--ghost sr-btn--sm">
+                          View receipt <Icon name="chevron-right" size={13} />
+                        </Link>
+                      ) : t.status === 'Pending' || t.status === 'Accepted' || t.status === 'InProgress' ? (
+                        <Link to={`/passenger/trip/${t.id}`} className="sr-btn sr-btn--ghost sr-btn--sm">
+                          Track <Icon name="chevron-right" size={13} />
+                        </Link>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="md:hidden flex flex-col gap-3">
+            {trips.map((t) => (
+              <div key={t.id} className="sr-card p-4">
+                <div className="flex justify-between items-start mb-2">
+                  <div className="sr-table__num">{new Date(t.createdAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                  <StatusChip status={t.status} />
+                </div>
+                <div className="text-[14px] mb-1"><strong>{t.pickup.label}</strong> <span className="text-ink-4">→</span> {t.dropoff.label}</div>
+                <div className="flex justify-between items-center mt-3">
+                  <div className="sr-small">{t.distanceMi} mi · {t.fare != null ? `$${t.fare.toFixed(2)}` : '—'}</div>
+                  {t.status === 'Completed' && (
+                    <Link to={`/passenger/trip/${t.id}/receipt`} className="sr-btn sr-btn--ghost sr-btn--sm">
+                      Receipt <Icon name="chevron-right" size={13} />
+                    </Link>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
