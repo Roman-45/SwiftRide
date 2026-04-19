@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { getAdminTrips } from '../api/client';
 import type { Trip, TripStatus } from '../types';
 import { StatusChip } from '../components/StatusChip';
@@ -9,8 +10,17 @@ import { PaginationBar, usePagination } from '../components/Pagination';
 
 const FILTERS: Array<TripStatus | 'All'> = ['All', 'Pending', 'Accepted', 'InProgress', 'Completed', 'Cancelled'];
 
+function isFilter(v: string | null): v is TripStatus | 'All' {
+  return !!v && (FILTERS as string[]).includes(v);
+}
+
 export function AdminTripsPage() {
-  const [filter, setFilter] = useState<TripStatus | 'All'>('All');
+  const [params, setParams] = useSearchParams();
+  const urlFilter = params.get('status');
+  const urlPage = parseInt(params.get('page') ?? '1', 10) || 1;
+  const initialFilter: TripStatus | 'All' = isFilter(urlFilter) ? urlFilter : 'All';
+
+  const [filter, setFilter] = useState<TripStatus | 'All'>(initialFilter);
   const [trips, setTrips] = useState<Trip[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,7 +31,17 @@ export function AdminTripsPage() {
   };
   useEffect(() => { load(filter); }, [filter]);
 
-  const { pageItems, pagination } = usePagination({ items: trips, resetKey: filter });
+  const { pageItems, pagination } = usePagination({ items: trips, initialPage: urlPage, resetKey: filter });
+
+  // Keep the URL in sync with current filter + page so it persists across reloads.
+  useEffect(() => {
+    const next = new URLSearchParams(params);
+    if (filter === 'All') next.delete('status'); else next.set('status', filter);
+    if (pagination.page === 1) next.delete('page'); else next.set('page', String(pagination.page));
+    // Only write if it actually changed to avoid loops.
+    if (next.toString() !== params.toString()) setParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, pagination.page]);
 
   return (
     <div className="max-w-[1200px] w-full mx-auto px-4 sm:px-6 lg:px-10 py-6 lg:py-8">

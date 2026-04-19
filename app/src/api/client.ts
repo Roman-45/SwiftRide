@@ -174,6 +174,12 @@ export async function getTripReceipt(id: string, passengerId: string): Promise<T
   return wait(t);
 }
 
+export async function getUser(id: string): Promise<User> {
+  const u = store.users.find((x) => x.id === id);
+  if (!u) return fail('User not found.', 404);
+  return wait(u);
+}
+
 // --- Driver ---
 export async function getPendingTrips(driverId: string): Promise<Trip[]> {
   const driver = store.users.find((u) => u.id === driverId);

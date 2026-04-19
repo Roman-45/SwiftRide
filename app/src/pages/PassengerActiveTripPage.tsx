@@ -26,6 +26,7 @@ export function PassengerActiveTripPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ratingOpen, setRatingOpen] = useState(false);
+  const [ratingPrompted, setRatingPrompted] = useState(false);
   const [rating, setRating] = useState(5);
   const [review, setReview] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
@@ -67,9 +68,14 @@ export function PassengerActiveTripPage() {
     return () => { mounted = false; clearInterval(handle); };
   }, [trip]);
 
+  // Auto-open the rating modal once per session when the trip first completes.
+  // If the user dismisses without rating, we don't nag on every poll.
   useEffect(() => {
-    if (trip?.status === 'Completed' && !trip.rating) setRatingOpen(true);
-  }, [trip]);
+    if (trip?.status === 'Completed' && !trip.rating && !ratingPrompted) {
+      setRatingOpen(true);
+      setRatingPrompted(true);
+    }
+  }, [trip, ratingPrompted]);
 
   const handleCancel = async () => {
     if (!trip) return;

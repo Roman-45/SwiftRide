@@ -6,6 +6,7 @@ export type PageSize = typeof PAGE_SIZE_OPTIONS[number];
 
 interface UsePaginationArgs<T> {
   items: T[] | null | undefined;
+  initialPage?: number;
   initialPageSize?: PageSize;
   /** Any value that should reset the page to 1 when it changes (e.g. a filter key). */
   resetKey?: string | number;
@@ -22,11 +23,11 @@ export interface Pagination {
 
 // Paginate a full in-memory list. For server-side pagination, swap the slice
 // for an API call and keep the same public shape.
-export function usePagination<T>({ items, initialPageSize = 10, resetKey }: UsePaginationArgs<T>): {
+export function usePagination<T>({ items, initialPage = 1, initialPageSize = 10, resetKey }: UsePaginationArgs<T>): {
   pageItems: T[] | null;
   pagination: Pagination;
 } {
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(Math.max(1, initialPage));
   const [pageSize, setPageSize] = useState<PageSize>(initialPageSize);
 
   // Reset to page 1 when the upstream filter changes.
