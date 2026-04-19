@@ -8,6 +8,9 @@ import { Icon } from '../components/Icon';
 import { EmptyState, InlineError, SkeletonRow } from '../components/EmptyState';
 import { StatusChip } from '../components/StatusChip';
 import { useToast } from '../components/Toast';
+import { Card } from '../components/Card';
+import { Button } from '../components/Button';
+import { RouteLine } from '../components/RouteLine';
 
 export function DriverDashboardPage() {
   const { user } = useAuth();
@@ -33,7 +36,6 @@ export function DriverDashboardPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  // If there's already an active trip, route to it.
   useEffect(() => {
     if (!user) return;
     getActiveTripForDriver(user.id).then((t) => { if (t) nav(`/driver/trip/${t.id}`, { replace: true }); }).catch(() => {});
@@ -59,12 +61,12 @@ export function DriverDashboardPage() {
         title={<>Good to see you, {user?.name.split(' ')[0]}. <span className="sr-italic text-ink-3">Let's roll.</span></>}
         lede="Availability, pending requests, and your earnings — one surface, no tabs."
         actions={!unapproved && (
-          <button
+          <Button
+            size="sm"
+            variant={available ? 'danger' : 'primary'}
             onClick={() => setAvailable((v) => !v)}
-            className={`sr-btn ${available ? 'sr-btn--danger' : 'sr-btn--primary'} sr-btn--sm`}
-          >
-            {available ? <><Icon name="x" size={13} /> Go offline</> : <><Icon name="check" size={13} /> Go online</>}
-          </button>
+            iconLeft={<Icon name={available ? 'x' : 'check'} size={13} />}
+          >{available ? 'Go offline' : 'Go online'}</Button>
         )}
       />
 
@@ -92,7 +94,7 @@ export function DriverDashboardPage() {
 
 function AvailabilityBanner({ available }: { available: boolean }) {
   return (
-    <div className="sr-card p-5 flex items-center gap-4 flex-wrap">
+    <Card className="flex items-center gap-4 flex-wrap">
       <div
         className="w-10 h-10 rounded-full grid place-items-center flex-shrink-0"
         style={{ background: available ? 'rgba(127,212,155,0.18)' : 'rgba(154,147,134,0.18)', color: available ? 'var(--sr-ok)' : 'var(--sr-ink-3)' }}
@@ -107,13 +109,13 @@ function AvailabilityBanner({ available }: { available: boolean }) {
           {available ? 'Location is shared with the matching service only during trips in progress.' : 'Flip availability above when you\'re ready to accept requests.'}
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
 function QueuePanel({ trips, available, onAccept }: { trips: Trip[] | null; available: boolean; onAccept: (id: string) => void }) {
   return (
-    <div className="sr-card overflow-hidden">
+    <Card padding="none" className="overflow-hidden">
       <div className="p-5 border-b border-line flex items-end justify-between gap-3">
         <div>
           <div className="sr-eyebrow mb-1">Pending requests</div>
@@ -146,40 +148,28 @@ function QueuePanel({ trips, available, onAccept }: { trips: Trip[] | null; avai
                   <StatusChip status="Pending" live />
                   <span className="sr-micro">{t.distanceMi} mi</span>
                 </div>
-                <div className="grid grid-cols-[14px_1fr] gap-2">
-                  <div className="flex flex-col items-center gap-1 pt-1">
-                    <span className="w-2 h-2 rounded-full bg-ink" />
-                    <span className="w-px flex-1 bg-line min-h-[14px]" />
-                    <span className="w-2 h-2 rounded-full bg-accent" />
-                  </div>
-                  <div className="grid gap-1">
-                    <div className="text-[13px]">{t.pickup.label}</div>
-                    <div className="text-[13px] text-ink-2">{t.dropoff.label}</div>
-                  </div>
-                </div>
+                <RouteLine pickup={t.pickup} dropoff={t.dropoff} compact />
               </div>
               <div className="flex items-center gap-4 justify-between sm:flex-col sm:items-end sm:gap-2">
                 <div>
                   <div className="sr-micro">Est. fare</div>
                   <div className="sr-num text-[22px] tracking-tight">${(t.fare ?? 0).toFixed(2)}</div>
                 </div>
-                <button className="sr-btn sr-btn--primary sr-btn--sm" onClick={() => onAccept(t.id)}>
-                  <Icon name="check" size={13} /> Accept
-                </button>
+                <Button size="sm" variant="primary" onClick={() => onAccept(t.id)} iconLeft={<Icon name="check" size={13} />}>Accept</Button>
               </div>
             </li>
           ))}
         </ul>
       )}
-    </div>
+    </Card>
   );
 }
 
 function EarningsPanel({ earnings }: { earnings: Earnings | null }) {
-  if (!earnings) return <div className="sr-card p-5"><SkeletonRow lines={5} /></div>;
+  if (!earnings) return <Card><SkeletonRow lines={5} /></Card>;
   const max = Math.max(...earnings.chart.map((d) => d.value));
   return (
-    <div className="sr-card overflow-hidden">
+    <Card padding="none" className="overflow-hidden">
       <div className="p-5 border-b border-line">
         <div className="sr-eyebrow mb-1">Earnings</div>
         <div className="flex items-baseline gap-2">
@@ -217,7 +207,7 @@ function EarningsPanel({ earnings }: { earnings: Earnings | null }) {
         <Cell label="30 days"  value={earnings.thirty} divider />
         <Cell label="All-time" value={earnings.allTime} divider />
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -233,7 +223,7 @@ function Cell({ label, value, divider }: { label: string; value: number; divider
 function AwaitingApproval({ status }: { status: string }) {
   const isSuspended = status === 'suspended';
   return (
-    <div className="sr-card p-6 sm:p-10 grid sm:grid-cols-[72px_1fr] gap-6 items-start">
+    <Card padding="lg" className="grid sm:grid-cols-[72px_1fr] gap-6 items-start">
       <div
         className="w-16 h-16 rounded-full grid place-items-center"
         style={{ background: isSuspended ? 'var(--sr-err-soft)' : 'var(--sr-accent-soft)', color: isSuspended ? 'var(--sr-err)' : 'var(--sr-accent-hover)' }}
@@ -249,10 +239,10 @@ function AwaitingApproval({ status }: { status: string }) {
             : "An administrator is reviewing your documents. Trips are unavailable until you're approved — usually within one business day."}
         </p>
         <div className="mt-5 flex gap-2 flex-wrap">
-          <button className="sr-btn sr-btn--secondary sr-btn--sm"><Icon name="phone" size={13} /> Contact onboarding</button>
-          <button className="sr-btn sr-btn--ghost sr-btn--sm"><Icon name="info" size={13} /> Status checklist</button>
+          <Button size="sm" variant="secondary" iconLeft={<Icon name="phone" size={13} />}>Contact onboarding</Button>
+          <Button size="sm" variant="ghost" iconLeft={<Icon name="info" size={13} />}>Status checklist</Button>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

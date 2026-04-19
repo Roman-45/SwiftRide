@@ -4,6 +4,8 @@ import { useAuth, homeForRole } from '../auth/AuthContext';
 import { SwiftRideLogo } from '../components/Logo';
 import { Icon } from '../components/Icon';
 import { ApiError } from '../api/client';
+import { Button } from '../components/Button';
+import { Field, Input } from '../components/Field';
 
 export function RegisterPage() {
   const { register } = useAuth();
@@ -50,22 +52,19 @@ export function RegisterPage() {
           <div className="sr-eyebrow mb-2">Register</div>
           <h2 className="sr-h1 mb-6">Join the ledger.</h2>
 
-          <div className="sr-field mb-3">
-            <label className="sr-label" htmlFor="name">Full name</label>
-            <input id="name" className="sr-input" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />
-          </div>
-          <div className="sr-field mb-3">
-            <label className="sr-label" htmlFor="email">Email</label>
-            <input id="email" type="email" className="sr-input" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} required />
-          </div>
-          <div className="sr-field mb-3">
-            <label className="sr-label" htmlFor="phone">Phone</label>
-            <input id="phone" className="sr-input" placeholder="+1 (555) 555-0100" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} required />
-          </div>
-          <div className="sr-field mb-3">
-            <label className="sr-label" htmlFor="password">Password</label>
-            <input id="password" type="password" className="sr-input" minLength={6} value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} required />
-          </div>
+          <Field label="Full name">
+            {({ inputId }) => <Input id={inputId} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />}
+          </Field>
+          <Field label="Email">
+            {({ inputId }) => <Input id={inputId} type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} required />}
+          </Field>
+          <Field label="Phone">
+            {({ inputId }) => <Input id={inputId} placeholder="+1 (555) 555-0100" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} required />}
+          </Field>
+          <Field label="Password" hint="Minimum 6 characters.">
+            {({ inputId }) => <Input id={inputId} type="password" minLength={6} value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} required />}
+          </Field>
+
           <div className="sr-field mb-5">
             <span className="sr-label">Role</span>
             <div className="grid grid-cols-2 gap-2">
@@ -89,9 +88,9 @@ export function RegisterPage() {
             </div>
           )}
 
-          <button type="submit" className="sr-btn sr-btn--primary sr-btn--lg sr-btn--block" disabled={busy}>
-            {busy ? 'Creating account…' : <>Create account <Icon name="arrow-right" size={14} /></>}
-          </button>
+          <Button type="submit" variant="primary" size="lg" block disabled={busy} iconRight={!busy ? <Icon name="arrow-right" size={14} /> : undefined}>
+            {busy ? 'Creating account…' : 'Create account'}
+          </Button>
         </form>
       </div>
     </div>

@@ -5,6 +5,10 @@ import { Icon } from '../components/Icon';
 import { StarRating } from '../components/StarRating';
 import { EmptyState, InlineError, SkeletonRow } from '../components/EmptyState';
 import { useToast } from '../components/Toast';
+import { Card } from '../components/Card';
+import { Button } from '../components/Button';
+import { Tabs } from '../components/Tabs';
+import { PaginationBar, usePagination } from '../components/Pagination';
 
 type Tab = 'drivers' | 'passengers';
 
@@ -30,6 +34,16 @@ export function AdminUsersPage() {
       .filter((u) => q.trim().length === 0 || [u.name, u.email, u.phone].some((f) => f.toLowerCase().includes(q.toLowerCase())));
   }, [users, tab, q]);
 
+  const counts = useMemo(() => {
+    if (!users) return { drivers: 0, passengers: 0 };
+    return {
+      drivers:    users.filter((u) => u.role === 'driver').length,
+      passengers: users.filter((u) => u.role === 'passenger').length,
+    };
+  }, [users]);
+
+  const { pageItems, pagination } = usePagination({ items: rows, resetKey: `${tab}|${q}` });
+
   const handleApprove = async (id: string) => {
     try {
       const updated = await approveDriver(id);
@@ -54,18 +68,15 @@ export function AdminUsersPage() {
       </header>
 
       <div className="flex items-center gap-2 flex-wrap mb-4 justify-between">
-        <div className="inline-flex rounded border border-line p-1 bg-surface" role="tablist">
-          {(['drivers', 'passengers'] as Tab[]).map((t) => (
-            <button
-              key={t}
-              role="tab"
-              aria-selected={tab === t}
-              onClick={() => setTab(t)}
-              className={`px-3 py-1.5 rounded text-[13px] font-medium transition capitalize
-                ${tab === t ? 'bg-ink text-paper' : 'text-ink-3 hover:text-ink'}`}
-            >{t}</button>
-          ))}
-        </div>
+        <Tabs<Tab>
+          ariaLabel="User role"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: 'drivers',    label: 'Drivers',    count: counts.drivers },
+            { value: 'passengers', label: 'Passengers', count: counts.passengers },
+          ]}
+        />
         <div className="relative flex-1 max-w-xs">
           <Icon name="search" size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--sr-ink-3)' }} />
           <input
@@ -79,16 +90,16 @@ export function AdminUsersPage() {
       </div>
 
       {error && <InlineError message={error} onRetry={load} />}
-      {!rows && !error && <div className="sr-card p-6"><SkeletonRow lines={5} /></div>}
+      {!pageItems && !error && <Card><SkeletonRow lines={5} /></Card>}
 
-      {rows && rows.length === 0 && (
-        <div className="sr-card"><EmptyState icon="user" title="No results" body="Adjust your filter or clear the search." /></div>
+      {pageItems && pageItems.length === 0 && (
+        <Card padding="none"><EmptyState icon="user" title="No results" body="Adjust your filter or clear the search." /></Card>
       )}
 
-      {rows && rows.length > 0 && (
+      {pageItems && pageItems.length > 0 && (
         <>
           {/* Desktop */}
-          <div className="sr-card overflow-hidden hidden md:block">
+          <Card padding="none" className="overflow-hidden hidden md:block">
             <table className="sr-table">
               <thead>
                 <tr>
@@ -101,7 +112,7 @@ export function AdminUsersPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((u) => (
+                {pageItems.map((u) => (
                   <tr key={u.id}>
                     <td><strong>{u.name}</strong></td>
                     <td><span className="sr-table__num">{u.email}</span></td>
@@ -118,10 +129,10 @@ export function AdminUsersPage() {
                       <td style={{ textAlign: 'right' }}>
                         <div className="inline-flex gap-2">
                           {u.driverStatus !== 'approved' && (
-                            <button className="sr-btn sr-btn--ghost sr-btn--sm" onClick={() => handleApprove(u.id)}><Icon name="check" size={13} /> Approve</button>
+                            <Button size="sm" variant="ghost" onClick={() => handleApprove(u.id)} iconLeft={<Icon name="check" size={13} />}>Approve</Button>
                           )}
                           {u.driverStatus !== 'suspended' && (
-                            <button className="sr-btn sr-btn--danger sr-btn--sm" onClick={() => handleSuspend(u.id)}><Icon name="x" size={13} /> Suspend</button>
+                            <Button size="sm" variant="danger" onClick={() => handleSuspend(u.id)} iconLeft={<Icon name="x" size={13} />}>Suspend</Button>
                           )}
                         </div>
                       </td>
@@ -130,12 +141,12 @@ export function AdminUsersPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </Card>
 
           {/* Mobile */}
           <div className="md:hidden flex flex-col gap-3">
-            {rows.map((u) => (
-              <div key={u.id} className="sr-card p-4">
+            {pageItems.map((u) => (
+              <Card key={u.id} padding="sm">
                 <div className="flex justify-between items-start mb-1.5">
                   <strong>{u.name}</strong>
                   {tab === 'drivers' && <DriverStatusChip status={u.driverStatus ?? 'pending'} />}
@@ -148,16 +159,18 @@ export function AdminUsersPage() {
                 {tab === 'drivers' && (
                   <div className="flex gap-2 mt-3">
                     {u.driverStatus !== 'approved' && (
-                      <button className="sr-btn sr-btn--primary sr-btn--sm flex-1" onClick={() => handleApprove(u.id)}>Approve</button>
+                      <Button size="sm" variant="primary" block onClick={() => handleApprove(u.id)}>Approve</Button>
                     )}
                     {u.driverStatus !== 'suspended' && (
-                      <button className="sr-btn sr-btn--danger sr-btn--sm flex-1" onClick={() => handleSuspend(u.id)}>Suspend</button>
+                      <Button size="sm" variant="danger" block onClick={() => handleSuspend(u.id)}>Suspend</Button>
                     )}
                   </div>
                 )}
-              </div>
+              </Card>
             ))}
           </div>
+
+          <PaginationBar pagination={pagination} label={[tab === 'drivers' ? 'driver' : 'passenger', tab]} />
         </>
       )}
     </div>

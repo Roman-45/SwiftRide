@@ -9,6 +9,10 @@ import { cancelTrip, getDriverCard, getDriverLocation, getTrip, reviewTrip } fro
 import type { DriverCard, LatLng, Trip } from '../types';
 import { InlineError, SkeletonRow } from '../components/EmptyState';
 import { useToast } from '../components/Toast';
+import { Card } from '../components/Card';
+import { Button } from '../components/Button';
+import { RouteLine } from '../components/RouteLine';
+import { Textarea } from '../components/Field';
 
 export function PassengerActiveTripPage() {
   const { id } = useParams<{ id: string }>();
@@ -41,20 +45,17 @@ export function PassengerActiveTripPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  // Poll trip state every 5s — per brief.
   useEffect(() => {
     if (!id) return;
     const handle = setInterval(() => { void load(); }, 5000);
     return () => clearInterval(handle);
   }, [id, load]);
 
-  // Once accepted, fetch driver card (once).
   useEffect(() => {
     if (!trip || !trip.driverId || driver) return;
     getDriverCard(trip.id).then(setDriver).catch(() => {});
   }, [trip, driver]);
 
-  // Poll driver location every 5s while there is a driver.
   useEffect(() => {
     if (!trip || !trip.driverId || trip.status === 'Completed' || trip.status === 'Cancelled') return;
     let mounted = true;
@@ -66,7 +67,6 @@ export function PassengerActiveTripPage() {
     return () => { mounted = false; clearInterval(handle); };
   }, [trip]);
 
-  // Open rating modal on complete (once).
   useEffect(() => {
     if (trip?.status === 'Completed' && !trip.rating) setRatingOpen(true);
   }, [trip]);
@@ -98,7 +98,7 @@ export function PassengerActiveTripPage() {
   if (loading && !trip) {
     return (
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="sr-card p-6 max-w-md"><SkeletonRow lines={4} /></div>
+        <Card className="max-w-md"><SkeletonRow lines={4} /></Card>
       </div>
     );
   }
@@ -141,61 +141,34 @@ export function PassengerActiveTripPage() {
 
         <div className="flex flex-col gap-4">
           {trip.status === 'Pending' && (
-            <div className="sr-card p-5">
+            <Card>
               <div className="sr-eyebrow mb-2">Looking for a driver</div>
               <div className="flex items-center gap-3">
                 <div className="sr-skel w-10 h-10 rounded-full" />
                 <div className="flex-1"><SkeletonRow lines={2} /></div>
               </div>
               <p className="sr-small mt-3">We're paging nearby drivers. Feel free to cancel if you change your mind.</p>
-            </div>
+            </Card>
           )}
 
-          {trip.status === 'Accepted' && driver && (
-            <DriverInfoCard driver={driver} eta={driver.etaMinutes} status={trip.status} />
-          )}
-          {trip.status === 'InProgress' && driver && (
-            <DriverInfoCard driver={driver} eta={driver.etaMinutes} status={trip.status} />
-          )}
+          {live && driver && <DriverInfoCard driver={driver} status={trip.status} />}
 
-          <div className="sr-card p-5">
+          <Card>
             <div className="sr-eyebrow mb-3">Route</div>
-            <div className="grid grid-cols-[14px_1fr] gap-3">
-              <div className="flex flex-col items-center gap-1 pt-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-ink" />
-                <span className="flex-1 w-px bg-line min-h-[20px]" />
-                <span className="w-2.5 h-2.5 rounded-full bg-accent" />
-              </div>
-              <div className="grid gap-4">
-                <div>
-                  <div className="sr-micro">Pickup</div>
-                  <div className="text-[14px] font-medium">{trip.pickup.label}</div>
-                  {trip.pickup.sub && <div className="sr-small">{trip.pickup.sub}</div>}
-                </div>
-                <div>
-                  <div className="sr-micro">Dropoff</div>
-                  <div className="text-[14px] font-medium">{trip.dropoff.label}</div>
-                  {trip.dropoff.sub && <div className="sr-small">{trip.dropoff.sub}</div>}
-                </div>
-              </div>
-            </div>
+            <RouteLine pickup={trip.pickup} dropoff={trip.dropoff} />
             <div className="mt-3 pt-3 border-t border-line flex justify-between font-mono text-[11px] tracking-wider uppercase text-ink-3">
               <span>{trip.distanceMi} mi</span>
               {trip.fare != null && <span>${trip.fare.toFixed(2)}</span>}
             </div>
-          </div>
+          </Card>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {canCancel && (
-              <button className="sr-btn sr-btn--danger flex-1" onClick={handleCancel}>
-                <Icon name="x" size={14} /> Cancel trip
-              </button>
+              <Button variant="danger" className="flex-1" onClick={handleCancel} iconLeft={<Icon name="x" size={14} />}>Cancel trip</Button>
             )}
             {trip.status === 'Completed' && (
               <>
-                <button className="sr-btn sr-btn--secondary flex-1" onClick={() => setRatingOpen(true)}>
-                  <Icon name="star" size={14} /> Rate driver
-                </button>
+                <Button variant="secondary" className="flex-1" onClick={() => setRatingOpen(true)} iconLeft={<Icon name="star" size={14} />}>Rate driver</Button>
                 <Link to={`/passenger/trip/${trip.id}/receipt`} className="sr-btn sr-btn--primary flex-1">
                   <Icon name="receipt" size={14} /> View receipt
                 </Link>
@@ -207,34 +180,28 @@ export function PassengerActiveTripPage() {
 
       {ratingOpen && trip.status === 'Completed' && (
         <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm grid place-items-center z-50 p-4" role="dialog" aria-modal="true">
-          <div className="sr-card w-full max-w-md p-6" style={{ boxShadow: 'var(--sr-shadow-pop)' }}>
+          <Card className="w-full max-w-md" style={{ boxShadow: 'var(--sr-shadow-pop)' }}>
             <div className="sr-eyebrow mb-2">Rate your trip</div>
             <h2 className="sr-h2 mb-1">How was {driver?.name ?? 'your driver'}?</h2>
             <p className="sr-small mb-5">Star rating and an optional note. Thank you.</p>
             <div className="mb-5"><StarRating value={rating} size={32} interactive onChange={setRating} /></div>
-            <textarea
-              className="sr-input"
-              placeholder="Leave a short note (optional)"
-              rows={3}
-              value={review}
-              onChange={(e) => setReview(e.target.value)}
-            />
+            <Textarea placeholder="Leave a short note (optional)" rows={3} value={review} onChange={(e) => setReview(e.target.value)} />
             <div className="mt-5 flex gap-2 justify-end">
-              <button className="sr-btn sr-btn--ghost" onClick={() => setRatingOpen(false)} disabled={submittingReview}>Skip</button>
-              <button className="sr-btn sr-btn--primary" onClick={handleSubmitReview} disabled={submittingReview}>
+              <Button variant="ghost" onClick={() => setRatingOpen(false)} disabled={submittingReview}>Skip</Button>
+              <Button variant="primary" onClick={handleSubmitReview} disabled={submittingReview}>
                 {submittingReview ? 'Sending…' : 'Submit review'}
-              </button>
+              </Button>
             </div>
-          </div>
+          </Card>
         </div>
       )}
     </div>
   );
 }
 
-function DriverInfoCard({ driver, eta, status }: { driver: DriverCard; eta: number; status: Trip['status'] }) {
+function DriverInfoCard({ driver, status }: { driver: DriverCard; status: Trip['status'] }) {
   return (
-    <div className="sr-card p-5">
+    <Card>
       <div className="sr-eyebrow mb-3">Your driver</div>
       <div className="flex items-center gap-3.5">
         <div className="sr-avatar sr-avatar--lg" style={{ background: 'var(--sr-info)' }}>
@@ -254,9 +221,9 @@ function DriverInfoCard({ driver, eta, status }: { driver: DriverCard; eta: numb
           <Icon name="phone" size={14} /> Call driver
         </a>
         <div className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded bg-accent-soft text-accent-hover font-mono text-[11px] tracking-wider uppercase">
-          <Icon name="clock" size={13} /> {eta} min · {status === 'InProgress' ? 'to dropoff' : 'to pickup'}
+          <Icon name="clock" size={13} /> {driver.etaMinutes} min · {status === 'InProgress' ? 'to dropoff' : 'to pickup'}
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

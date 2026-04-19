@@ -4,6 +4,8 @@ import { useAuth, homeForRole } from '../auth/AuthContext';
 import { SwiftRideLogo } from '../components/Logo';
 import { Icon } from '../components/Icon';
 import { ApiError } from '../api/client';
+import { Button } from '../components/Button';
+import { Field, Input } from '../components/Field';
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -53,14 +55,16 @@ export function LoginPage() {
           <h2 className="sr-h1 mb-2">Welcome back.</h2>
           <p className="sr-small mb-6">Use one of the demo accounts or register a new passenger / driver.</p>
 
-          <div className="sr-field mb-4">
-            <label htmlFor="email" className="sr-label">Email</label>
-            <input id="email" type="email" className="sr-input" value={email} onChange={(e) => setEmail(e.target.value)} aria-invalid={!!error || undefined} required />
-          </div>
-          <div className="sr-field mb-4">
-            <label htmlFor="password" className="sr-label">Password</label>
-            <input id="password" type="password" className="sr-input" value={password} onChange={(e) => setPassword(e.target.value)} aria-invalid={!!error || undefined} required />
-          </div>
+          <Field label="Email">
+            {({ inputId, invalid }) => (
+              <Input id={inputId} type="email" value={email} onChange={(e) => setEmail(e.target.value)} invalid={invalid || !!error} required />
+            )}
+          </Field>
+          <Field label="Password">
+            {({ inputId, invalid }) => (
+              <Input id={inputId} type="password" value={password} onChange={(e) => setPassword(e.target.value)} invalid={invalid || !!error} required />
+            )}
+          </Field>
 
           {error && (
             <div className="flex items-start gap-2 mb-4 p-3 rounded border" style={{ background: 'var(--sr-err-soft)', borderColor: 'rgba(168,30,30,0.35)', color: 'var(--sr-err)' }}>
@@ -69,9 +73,9 @@ export function LoginPage() {
             </div>
           )}
 
-          <button type="submit" className="sr-btn sr-btn--primary sr-btn--lg sr-btn--block" disabled={busy}>
-            {busy ? 'Signing in…' : <>Sign in <Icon name="arrow-right" size={14} /></>}
-          </button>
+          <Button type="submit" variant="primary" size="lg" block disabled={busy} iconRight={!busy ? <Icon name="arrow-right" size={14} /> : undefined}>
+            {busy ? 'Signing in…' : 'Sign in'}
+          </Button>
 
           <div className="mt-5 text-[13px] text-ink-3">
             New to SwiftRide? <Link to="/register" className="text-accent-hover underline">Create an account</Link>

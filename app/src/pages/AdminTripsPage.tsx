@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getAdminTrips } from '../api/client';
 import type { Trip, TripStatus } from '../types';
 import { StatusChip } from '../components/StatusChip';
 import { EmptyState, InlineError, SkeletonRow } from '../components/EmptyState';
+import { Card } from '../components/Card';
+import { Button } from '../components/Button';
+import { PaginationBar, usePagination } from '../components/Pagination';
 
 const FILTERS: Array<TripStatus | 'All'> = ['All', 'Pending', 'Accepted', 'InProgress', 'Completed', 'Cancelled'];
-const PAGE_SIZE = 10;
 
 export function AdminTripsPage() {
   const [filter, setFilter] = useState<TripStatus | 'All'>('All');
-  const [page, setPage] = useState(1);
   const [trips, setTrips] = useState<Trip[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -18,15 +19,9 @@ export function AdminTripsPage() {
     setError(null);
     getAdminTrips(f).then(setTrips).catch((e) => setError(e.message));
   };
-  useEffect(() => { load(filter); setPage(1); }, [filter]);
+  useEffect(() => { load(filter); }, [filter]);
 
-  const paged = useMemo(() => {
-    if (!trips) return null;
-    const start = (page - 1) * PAGE_SIZE;
-    return trips.slice(start, start + PAGE_SIZE);
-  }, [trips, page]);
-
-  const pageCount = trips ? Math.max(1, Math.ceil(trips.length / PAGE_SIZE)) : 1;
+  const { pageItems, pagination } = usePagination({ items: trips, resetKey: filter });
 
   return (
     <div className="max-w-[1200px] w-full mx-auto px-4 sm:px-6 lg:px-10 py-6 lg:py-8">
@@ -37,27 +32,28 @@ export function AdminTripsPage() {
 
       <div className="flex gap-2 mb-4 flex-wrap">
         {FILTERS.map((f) => (
-          <button
+          <Button
             key={f}
+            size="sm"
+            variant={filter === f ? 'primary' : 'secondary'}
             onClick={() => setFilter(f)}
-            className={`sr-btn sr-btn--sm ${filter === f ? 'sr-btn--primary' : 'sr-btn--secondary'}`}
           >
             {f === 'InProgress' ? 'In progress' : f}
-          </button>
+          </Button>
         ))}
       </div>
 
       {error && <InlineError message={error} onRetry={() => load(filter)} />}
-      {!paged && !error && <div className="sr-card p-6"><SkeletonRow lines={5} /></div>}
+      {!pageItems && !error && <Card><SkeletonRow lines={5} /></Card>}
 
-      {paged && paged.length === 0 && (
-        <div className="sr-card"><EmptyState icon="route" title="No trips match this filter" body="Try a different status or clear the filter." /></div>
+      {pageItems && pageItems.length === 0 && (
+        <Card padding="none"><EmptyState icon="route" title="No trips match this filter" body="Try a different status or clear the filter." /></Card>
       )}
 
-      {paged && paged.length > 0 && (
+      {pageItems && pageItems.length > 0 && (
         <>
           {/* Desktop */}
-          <div className="sr-card overflow-hidden hidden md:block">
+          <Card padding="none" className="overflow-hidden hidden md:block">
             <table className="sr-table">
               <thead>
                 <tr>
@@ -70,7 +66,7 @@ export function AdminTripsPage() {
                 </tr>
               </thead>
               <tbody>
-                {paged.map((t) => (
+                {pageItems.map((t) => (
                   <tr key={t.id}>
                     <td className="sr-table__num">{t.id}</td>
                     <td>
@@ -89,12 +85,12 @@ export function AdminTripsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </Card>
 
           {/* Mobile */}
           <div className="md:hidden flex flex-col gap-3">
-            {paged.map((t) => (
-              <div key={t.id} className="sr-card p-4">
+            {pageItems.map((t) => (
+              <Card key={t.id} padding="sm">
                 <div className="flex justify-between items-start mb-1.5">
                   <span className="sr-table__num">{t.id}</span>
                   <StatusChip status={t.status} />
@@ -104,20 +100,11 @@ export function AdminTripsPage() {
                   <span>{t.distanceMi} mi{t.fare != null ? ` · $${t.fare.toFixed(2)}` : ''}</span>
                   <span>{new Date(t.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</span>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
 
-          {/* Pagination */}
-          {pageCount > 1 && (
-            <div className="flex items-center justify-between mt-4">
-              <div className="sr-small">Page {page} of {pageCount} · {trips?.length ?? 0} trips</div>
-              <div className="flex gap-2">
-                <button className="sr-btn sr-btn--secondary sr-btn--sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</button>
-                <button className="sr-btn sr-btn--secondary sr-btn--sm" disabled={page >= pageCount} onClick={() => setPage((p) => p + 1)}>Next</button>
-              </div>
-            </div>
-          )}
+          <PaginationBar pagination={pagination} label={['trip', 'trips']} />
         </>
       )}
     </div>

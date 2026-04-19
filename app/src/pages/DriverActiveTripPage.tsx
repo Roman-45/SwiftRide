@@ -8,6 +8,9 @@ import { StatusChip } from '../components/StatusChip';
 import { Icon } from '../components/Icon';
 import { InlineError, SkeletonRow } from '../components/EmptyState';
 import { useToast } from '../components/Toast';
+import { Card } from '../components/Card';
+import { Button } from '../components/Button';
+import { RouteLine } from '../components/RouteLine';
 
 export function DriverActiveTripPage() {
   const { id } = useParams<{ id: string }>();
@@ -56,7 +59,7 @@ export function DriverActiveTripPage() {
   };
 
   if (error) return <div className="max-w-2xl mx-auto p-6"><InlineError message={error} onRetry={load} /></div>;
-  if (!trip) return <div className="max-w-2xl mx-auto p-6"><div className="sr-card p-5"><SkeletonRow lines={4} /></div></div>;
+  if (!trip) return <div className="max-w-2xl mx-auto p-6"><Card><SkeletonRow lines={4} /></Card></div>;
 
   const canStart = trip.status === 'Accepted';
   const canComplete = trip.status === 'InProgress';
@@ -76,7 +79,7 @@ export function DriverActiveTripPage() {
         <Map pickup={trip.pickup.coords} dropoff={trip.dropoff.coords} height={520} />
 
         <div className="flex flex-col gap-4">
-          <div className="sr-card p-5">
+          <Card>
             <div className="sr-eyebrow mb-3">Passenger</div>
             <div className="flex items-center gap-3.5">
               <div className="sr-avatar sr-avatar--lg" style={{ background: 'var(--sr-accent)', color: 'white' }}>PA</div>
@@ -86,42 +89,30 @@ export function DriverActiveTripPage() {
               </div>
               <a href="tel:+14155550142" className="sr-btn sr-btn--secondary sr-btn--sm"><Icon name="phone" size={14} /> Call</a>
             </div>
-          </div>
+          </Card>
 
-          <div className="sr-card p-5">
+          <Card>
             <div className="sr-eyebrow mb-3">Route</div>
-            <div className="grid grid-cols-[14px_1fr] gap-3">
-              <div className="flex flex-col items-center gap-1 pt-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-ink" />
-                <span className="flex-1 w-px bg-line min-h-[20px]" />
-                <span className="w-2.5 h-2.5 rounded-full bg-accent" />
-              </div>
-              <div className="grid gap-4">
-                <div>
-                  <div className="sr-micro">Pickup</div>
-                  <div className="text-[14px] font-medium">{trip.pickup.label}</div>
-                  {trip.pickup.sub && <div className="sr-small">{trip.pickup.sub}</div>}
-                </div>
-                <div>
-                  <div className="sr-micro">Dropoff</div>
-                  <div className="text-[14px] font-medium">{trip.dropoff.label}</div>
-                  {trip.dropoff.sub && <div className="sr-small">{trip.dropoff.sub}</div>}
-                </div>
-              </div>
-            </div>
+            <RouteLine pickup={trip.pickup} dropoff={trip.dropoff} />
             <div className="mt-3 pt-3 border-t border-line flex justify-between font-mono text-[11px] tracking-wider uppercase text-ink-3">
               <span>{trip.distanceMi} mi</span>
               {trip.fare != null && <span>${trip.fare.toFixed(2)}</span>}
             </div>
-          </div>
+          </Card>
 
           <div className="grid grid-cols-2 gap-2">
-            <button className="sr-btn sr-btn--secondary sr-btn--lg" disabled={!canStart || busy} onClick={handleStart}>
-              <Icon name="car" size={16} /> Start trip
-            </button>
-            <button className="sr-btn sr-btn--primary sr-btn--lg" disabled={!canComplete || busy} onClick={handleComplete}>
-              <Icon name="check" size={16} /> Complete
-            </button>
+            <Button
+              variant="secondary" size="lg"
+              disabled={!canStart || busy}
+              onClick={handleStart}
+              iconLeft={<Icon name="car" size={16} />}
+            >Start trip</Button>
+            <Button
+              variant="primary" size="lg"
+              disabled={!canComplete || busy}
+              onClick={handleComplete}
+              iconLeft={<Icon name="check" size={16} />}
+            >Complete</Button>
             <div className="col-span-2 sr-small mt-1">
               {trip.status === 'Accepted' && <>Tap <strong>Start</strong> once the passenger is in the car.</>}
               {trip.status === 'InProgress' && <>Tap <strong>Complete</strong> when you arrive at the dropoff.</>}

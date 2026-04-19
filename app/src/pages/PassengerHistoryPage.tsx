@@ -7,6 +7,8 @@ import { PageHead } from '../components/PageHead';
 import { StatusChip } from '../components/StatusChip';
 import { Icon } from '../components/Icon';
 import { EmptyState, InlineError, SkeletonRow } from '../components/EmptyState';
+import { Card } from '../components/Card';
+import { PaginationBar, usePagination } from '../components/Pagination';
 
 export function PassengerHistoryPage() {
   const { user } = useAuth();
@@ -20,6 +22,8 @@ export function PassengerHistoryPage() {
   };
   useEffect(load, [user]);
 
+  const { pageItems, pagination } = usePagination({ items: trips });
+
   return (
     <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
       <PageHead
@@ -29,24 +33,23 @@ export function PassengerHistoryPage() {
       />
 
       {error && <InlineError message={error} onRetry={load} />}
+      {!pageItems && !error && <Card><SkeletonRow lines={4} /></Card>}
 
-      {!error && trips == null && <div className="sr-card p-6"><SkeletonRow lines={4} /></div>}
-
-      {trips && trips.length === 0 && (
-        <div className="sr-card">
+      {pageItems && pageItems.length === 0 && (
+        <Card padding="none">
           <EmptyState
             icon="history"
             title="No trips yet"
             body="When you book your first ride, it'll show up here with a receipt."
             action={<Link to="/passenger/book" className="sr-btn sr-btn--primary sr-btn--sm"><Icon name="plus" size={13} /> Book a ride</Link>}
           />
-        </div>
+        </Card>
       )}
 
-      {trips && trips.length > 0 && (
+      {pageItems && pageItems.length > 0 && (
         <>
           {/* Desktop table */}
-          <div className="sr-card p-0 overflow-hidden hidden md:block">
+          <Card padding="none" className="overflow-hidden hidden md:block">
             <table className="sr-table">
               <thead>
                 <tr>
@@ -58,7 +61,7 @@ export function PassengerHistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {trips.map((t) => (
+                {pageItems.map((t) => (
                   <tr key={t.id}>
                     <td className="sr-table__num">{new Date(t.createdAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
                     <td>
@@ -74,7 +77,7 @@ export function PassengerHistoryPage() {
                         <Link to={`/passenger/trip/${t.id}/receipt`} className="sr-btn sr-btn--ghost sr-btn--sm">
                           View receipt <Icon name="chevron-right" size={13} />
                         </Link>
-                      ) : t.status === 'Pending' || t.status === 'Accepted' || t.status === 'InProgress' ? (
+                      ) : ['Pending', 'Accepted', 'InProgress'].includes(t.status) ? (
                         <Link to={`/passenger/trip/${t.id}`} className="sr-btn sr-btn--ghost sr-btn--sm">
                           Track <Icon name="chevron-right" size={13} />
                         </Link>
@@ -84,12 +87,12 @@ export function PassengerHistoryPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </Card>
 
           {/* Mobile cards */}
           <div className="md:hidden flex flex-col gap-3">
-            {trips.map((t) => (
-              <div key={t.id} className="sr-card p-4">
+            {pageItems.map((t) => (
+              <Card key={t.id} padding="sm">
                 <div className="flex justify-between items-start mb-2">
                   <div className="sr-table__num">{new Date(t.createdAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
                   <StatusChip status={t.status} />
@@ -103,9 +106,11 @@ export function PassengerHistoryPage() {
                     </Link>
                   )}
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
+
+          <PaginationBar pagination={pagination} label={['trip', 'trips']} />
         </>
       )}
     </div>
