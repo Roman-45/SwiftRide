@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1440, initial-scale=1">
+<title>SwiftRide · Admin Ops</title>
+<link rel="stylesheet" href="shared/tokens.css">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<style>
+  /* Admin screen switcher (top-right, different spot from passenger's top-left) */
+  .admin-switcher {
+    position: fixed; top: 16px; right: 16px; z-index: 200;
+    background: var(--sr-ink); color: var(--sr-bg);
+    border: 1px solid #1d1c19;
+    border-radius: var(--sr-r-3); padding: 5px;
+    box-shadow: var(--sr-shadow-pop);
+    display: flex; gap: 2px; align-items: center;
+    font-family: var(--sr-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .admin-switcher__label { padding: 6px 10px; color: #9aa0a4; }
+  .admin-switcher__btn {
+    padding: 6px 12px; background: transparent; border: none; border-radius: var(--sr-r-2);
+    font: inherit; color: #c8c6c1; cursor: pointer;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .admin-switcher__btn:hover { color: white; background: rgba(255,255,255,0.06); }
+  .admin-switcher__btn.is-active { background: var(--sr-accent); color: white; }
+
+  /* Same typography modes as passenger, for consistency */
+  body[data-type-mode="editorial"] {
+    --sr-serif: 'Fraunces', 'Newsreader', Georgia, serif;
+    --sr-sans:  'Geist', ui-sans-serif, system-ui, sans-serif;
+    --sr-mono:  'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  body[data-type-mode="editorial"] .sr-italic { font-family: 'Instrument Serif', 'Fraunces', serif; }
+  body[data-type-mode="simpler"] {
+    --sr-serif: 'Source Serif 4', Georgia, serif;
+    --sr-sans:  'Geist', ui-sans-serif, system-ui, sans-serif;
+    --sr-mono:  'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  body[data-type-mode="simpler"] .sr-italic { font-family: inherit; font-style: italic; }
+  body[data-type-mode="minimal"] {
+    --sr-serif: 'Inter Tight', ui-sans-serif, system-ui, sans-serif;
+    --sr-sans:  'Inter Tight', ui-sans-serif, system-ui, sans-serif;
+    --sr-mono:  'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  body[data-type-mode="minimal"] .sr-italic { font-family: inherit; font-style: italic; font-weight: 500; }
+
+  @media (max-width: 900px) {
+    .admin-switcher { position: fixed; top: 8px; right: 8px; padding: 3px; gap: 0; }
+    .admin-switcher__label { display: none; }
+    .admin-switcher__btn { padding: 5px 8px; font-size: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel" src="shared/components.jsx"></script>
+<script type="text/babel" src="screens/admin-shell.jsx"></script>
+<script type="text/babel" src="screens/admin-dashboard.jsx"></script>
+<script type="text/babel" src="screens/admin-users.jsx"></script>
+<script type="text/babel" src="screens/admin-trips.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const DEFAULTS = /*EDITMODE-BEGIN*/{
+  "typeMode": "editorial",
+  "startRoute": "dashboard"
+}/*EDITMODE-END*/;
+
+const routes = {
+  'dashboard': { label: 'Overview', node: <AdminDashboardScreen /> },
+  'users':     { label: 'Users',    node: <AdminUsersScreen /> },
+  'trips':     { label: 'Trips',    node: <AdminTripsScreen /> },
+};
+
+const App = () => {
+  const saved = (typeof localStorage !== 'undefined' && localStorage.getItem('sr-admin-route')) || DEFAULTS.startRoute;
+  const initial = (window.location.hash || `#${saved}`).replace('#','');
+  const [route, setRoute] = useState(routes[initial] ? initial : 'dashboard');
+
+  const savedType = (typeof localStorage !== 'undefined' && localStorage.getItem('sr-type-mode')) || DEFAULTS.typeMode;
+  const [typeMode] = useState(savedType);
+  useEffect(() => { document.body.setAttribute('data-type-mode', typeMode); }, [typeMode]);
+
+  useEffect(() => {
+    const onHash = () => {
+      const r = window.location.hash.replace('#','') || 'dashboard';
+      if (routes[r]) {
+        setRoute(r);
+        try { localStorage.setItem('sr-admin-route', r); } catch {}
+      }
+    };
+    window.addEventListener('hashchange', onHash);
+    if (!window.location.hash) window.location.hash = route;
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const go = (r) => { window.location.hash = r; };
+
+  return (
+    <>
+      {/* Screen switcher — top right, dark, to distinguish from passenger's top-left white pill */}
+      <div className="admin-switcher no-print">
+        <span className="admin-switcher__label">Admin · Ops</span>
+        {Object.entries(routes).map(([k, v]) => (
+          <button
+            key={k}
+            className={`admin-switcher__btn ${route === k ? 'is-active' : ''}`}
+            onClick={() => go(k)}
+          >{v.label}</button>
+        ))}
+      </div>
+
+      <div data-screen-label={`Admin · ${routes[route].label}`}>
+        {routes[route].node}
+      </div>
+    </>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

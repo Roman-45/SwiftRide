@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1440, initial-scale=1">
+<title>SwiftRide · Passenger</title>
+<link rel="stylesheet" href="shared/tokens.css">
+<!-- Alternative font options (loaded so Tweaks can switch instantly) -->
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  /* Screen switcher sidebar */
+  .sr-switcher {
+    position: fixed; top: 16px; left: 16px; z-index: 100;
+    background: var(--sr-surface); border: 1px solid var(--sr-line);
+    border-radius: var(--sr-r-3); padding: 6px;
+    box-shadow: var(--sr-shadow-2);
+    display: flex; gap: 2px; align-items: center;
+    font-family: var(--sr-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .sr-switcher__label { padding: 6px 10px; color: var(--sr-ink-4); }
+  .sr-switcher__btn {
+    padding: 6px 12px; background: transparent; border: none; border-radius: var(--sr-r-2);
+    font: inherit; color: var(--sr-ink-3); cursor: pointer;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .sr-switcher__btn:hover { color: var(--sr-ink); background: var(--sr-surface-2); }
+  .sr-switcher__btn.is-active { background: var(--sr-ink); color: var(--sr-bg); }
+
+  /* Typography modes (Tweaks) */
+  body[data-type-mode="editorial"] {
+    --sr-serif: 'Fraunces', 'Newsreader', Georgia, serif;
+    --sr-sans:  'Geist', ui-sans-serif, system-ui, sans-serif;
+    --sr-mono:  'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  body[data-type-mode="editorial"] .sr-italic {
+    font-family: 'Instrument Serif', 'Fraunces', serif;
+  }
+  /* Simpler: one serif, one sans, no italic display face */
+  body[data-type-mode="simpler"] {
+    --sr-serif: 'Source Serif 4', Georgia, serif;
+    --sr-sans:  'Geist', ui-sans-serif, system-ui, sans-serif;
+    --sr-mono:  'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  body[data-type-mode="simpler"] .sr-italic {
+    font-family: inherit;
+    font-style: italic;
+  }
+  /* Minimal: all sans. One family doing everything. */
+  body[data-type-mode="minimal"] {
+    --sr-serif: 'Inter Tight', ui-sans-serif, system-ui, sans-serif;
+    --sr-sans:  'Inter Tight', ui-sans-serif, system-ui, sans-serif;
+    --sr-mono:  'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  body[data-type-mode="minimal"] .sr-italic {
+    font-family: inherit;
+    font-style: italic;
+    font-weight: 500;
+  }
+  body[data-type-mode="minimal"] .sr-h1,
+  body[data-type-mode="minimal"] .sr-h2,
+  body[data-type-mode="minimal"] .sr-h3,
+  body[data-type-mode="minimal"] .sr-display {
+    font-weight: 500;
+    letter-spacing: -0.025em;
+  }
+
+  /* Tweaks floating panel */
+  .sr-tweaks {
+    position: fixed; bottom: 16px; right: 16px; z-index: 200;
+    width: 320px;
+    background: var(--sr-surface);
+    border: 1px solid var(--sr-line);
+    border-radius: var(--sr-r-3);
+    box-shadow: var(--sr-shadow-pop);
+    overflow: hidden;
+    display: none;
+  }
+  .sr-tweaks.is-open { display: block; }
+  .sr-tweaks__head {
+    padding: 12px 14px;
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid var(--sr-line);
+    background: var(--sr-ink); color: var(--sr-bg);
+  }
+  .sr-tweaks__head span {
+    font-family: var(--sr-mono); font-size: 11px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .sr-tweaks__close {
+    background: transparent; border: none; color: var(--sr-bg);
+    cursor: pointer; opacity: 0.7; padding: 4px; border-radius: 2px;
+  }
+  .sr-tweaks__close:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+  .sr-tweaks__body { padding: 16px; }
+  .sr-tweaks__group { margin-bottom: 14px; }
+  .sr-tweaks__label {
+    display: block; margin-bottom: 8px;
+    font-family: var(--sr-mono); font-size: 10px;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--sr-ink-3);
+  }
+  .sr-tweaks__options {
+    display: grid; grid-template-columns: 1fr; gap: 6px;
+  }
+  .sr-tweaks__opt {
+    padding: 10px 12px;
+    background: var(--sr-surface); border: 1px solid var(--sr-line);
+    border-radius: var(--sr-r-2); cursor: pointer;
+    font-family: inherit; text-align: left;
+    transition: border-color 120ms, background 120ms;
+  }
+  .sr-tweaks__opt:hover { border-color: var(--sr-ink-4); }
+  .sr-tweaks__opt.is-on {
+    border-color: var(--sr-accent);
+    background: var(--sr-accent-soft);
+  }
+  .sr-tweaks__opt strong {
+    display: block; font-weight: 500; font-size: 14px;
+    color: var(--sr-ink); margin-bottom: 2px;
+  }
+  .sr-tweaks__opt small {
+    font-size: 12px; color: var(--sr-ink-3);
+  }
+  .sr-tweaks__sample {
+    margin-top: 6px;
+    font-size: 13px;
+    color: var(--sr-ink);
+  }
+
+  /* DS showcase */
+  .ds-section {
+    padding: 40px 0; border-top: 1px solid var(--sr-line);
+  }
+  .ds-section:first-of-type { border-top: none; }
+  .ds-sec-head { display: grid; grid-template-columns: 240px 1fr; gap: 40px; margin-bottom: 24px; }
+  .ds-sec-head h2 { margin: 0; }
+  .ds-sec-head p { margin: 8px 0 0; color: var(--sr-ink-3); font-size: 14px; max-width: 520px; }
+  .ds-swatch {
+    display: flex; align-items: flex-end;
+    padding: 14px; border-radius: var(--sr-r-2);
+    height: 96px; color: var(--sr-bg);
+    font-family: var(--sr-mono); font-size: 10px; letter-spacing: 0.06em;
+  }
+  .ds-tile {
+    padding: 16px; border: 1px solid var(--sr-line); border-radius: var(--sr-r-3);
+    background: var(--sr-surface);
+  }
+  .ds-tile__label { font-family: var(--sr-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sr-ink-3); margin-bottom: 6px; }
+  .ds-tile__hex { font-family: var(--sr-mono); font-size: 11px; color: var(--sr-ink-4); margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel" src="shared/components.jsx"></script>
+<script type="text/babel" src="screens/auth.jsx"></script>
+<script type="text/babel" src="screens/totp.jsx"></script>
+<script type="text/babel" src="screens/booking.jsx"></script>
+<script type="text/babel" src="screens/active-trip.jsx"></script>
+<script type="text/babel" src="screens/history.jsx"></script>
+<script type="text/babel" src="screens/receipt.jsx"></script>
+<script type="text/babel" src="screens/states.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// ============================================================
+// DESIGN SYSTEM SHOWCASE
+// ============================================================
+const DesignSystem = () => (
+  <div>
+    <Topbar active="book" passengerName="Design · System" />
+    <main style={{ maxWidth: 1280, margin: '0 auto', padding: '32px 24px 80px' }}>
+      <PageHead
+        eyebrow="v1.0 · Passenger"
+        title={<>SwiftRide <span className="sr-italic">foundations</span>.</>}
+        lede="A small, honest system. One accent (orange) against a warm neutral. Editorial serif for weight and expression; a crisp sans and a tabular mono for work. Six rules from the brief, observed throughout."
+      />
+
+      {/* COLOR */}
+      <section className="ds-section">
+        <div className="ds-sec-head">
+          <div><div className="sr-eyebrow" style={{marginBottom:6}}>01 · Color</div><h2 className="sr-h2">Neutral base,<br/>one accent.</h2></div>
+          <p>Warm paper for canvas, graphite for depth, oxide orange for action. Semantic tones (ok · warn · info · err) sit alongside as tinted fills with matched text — status always uses colour <em>and</em> a label.</p>
+        </div>
+        <div>
+          <div className="sr-eyebrow" style={{marginBottom:10}}>Base</div>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:10, marginBottom:24}}>
+            {[
+              ['#F7F5F1','bg · paper',{color:'var(--sr-ink)'}],
+              ['#FFFFFF','surface',{color:'var(--sr-ink)', border:'1px solid var(--sr-line)'}],
+              ['#E6E1D8','line',{color:'var(--sr-ink)'}],
+              ['#9A9386','ink · 4'],
+              ['#403B32','ink · 2'],
+              ['#171512','ink'],
+            ].map(([hex,label,extra])=>(
+              <div key={hex} className="ds-swatch" style={{background:hex, ...(extra||{})}}>
+                <div>
+                  <div>{label}</div><div style={{opacity:.6}}>{hex}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="sr-eyebrow" style={{marginBottom:10}}>Accent & semantic</div>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:10}}>
+            {[
+              ['#E0531A','accent'],
+              ['#1F7A3D','ok'],
+              ['#9A6B0E','warn'],
+              ['#1B4C9A','info'],
+              ['#A81E1E','err'],
+            ].map(([hex,label])=>(
+              <div key={hex} className="ds-swatch" style={{background:hex}}>
+                <div><div>{label}</div><div style={{opacity:.6}}>{hex}</div></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* TYPE */}
+      <section className="ds-section">
+        <div className="ds-sec-head">
+          <div><div className="sr-eyebrow" style={{marginBottom:6}}>02 · Type</div><h2 className="sr-h2">Editorial serif,<br/>working sans.</h2></div>
+          <p>Fraunces carries the voice — headlines, fares, place names. Geist handles UI and copy. Geist Mono is for numbers, labels, and metadata. Three sizes max per screen: big number, heading, body.</p>
+        </div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:32}}>
+          <div>
+            <div className="sr-eyebrow" style={{marginBottom:8}}>Fraunces · display serif</div>
+            <div className="sr-display">A quiet way to <span className="sr-italic">move</span>.</div>
+            <div style={{height:20}}/>
+            <div className="sr-h1">Where are you <span className="sr-italic">going</span>?</div>
+            <div style={{height:12}}/>
+            <div className="sr-h2">Trip receipt №&nbsp;7a1fe02c</div>
+            <div style={{height:12}}/>
+            <div className="sr-h3">Driver arriving in 4 min</div>
+          </div>
+          <div>
+            <div className="sr-eyebrow" style={{marginBottom:8}}>Geist · sans · body</div>
+            <p className="sr-body" style={{marginTop:0}}>
+              When you're done, we'll show you a receipt. Every trip goes on the ledger so you can audit, print, and be reimbursed — no guessing, no missing fields.
+            </p>
+            <div className="sr-eyebrow" style={{marginTop:24, marginBottom:8}}>Geist Mono · labels & data</div>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:6}}>
+              <span className="sr-micro">PICKUP · 8:40 AM</span>
+              <span className="sr-micro">DROPOFF · 8:52 AM</span>
+              <span className="sr-micro">3.4 mi · 12 min</span>
+              <span className="sr-micro">t_7a1fe02c</span>
+            </div>
+            <div className="sr-eyebrow" style={{marginTop:24, marginBottom:8}}>Big number treatment</div>
+            <div className="sr-num" style={{fontSize:72, lineHeight:1, letterSpacing:'-0.02em'}}>
+              $14.<span style={{fontSize:44}}>80</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* BUTTONS & CHIPS */}
+      <section className="ds-section">
+        <div className="ds-sec-head">
+          <div><div className="sr-eyebrow" style={{marginBottom:6}}>03 · Components</div><h2 className="sr-h2">Buttons &<br/>status.</h2></div>
+          <p>Every interactive element has a visible hover, focus, and disabled state. Status uses color <em>and</em> a text label — never one without the other.</p>
+        </div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:24}}>
+          <div className="ds-tile">
+            <div className="ds-tile__label">Buttons</div>
+            <div style={{display:'flex', flexDirection:'column', gap:10, alignItems:'flex-start'}}>
+              <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                <button className="sr-btn sr-btn--primary">Book ride <Icon name="arrow-right" size={14}/></button>
+                <button className="sr-btn sr-btn--secondary">Use my location</button>
+                <button className="sr-btn sr-btn--ghost">Skip</button>
+                <button className="sr-btn sr-btn--danger"><Icon name="x" size={14}/> Cancel</button>
+              </div>
+              <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                <button className="sr-btn sr-btn--primary sr-btn--lg">Sign in</button>
+                <button className="sr-btn sr-btn--primary" disabled>Disabled</button>
+              </div>
+            </div>
+          </div>
+          <div className="ds-tile">
+            <div className="ds-tile__label">Trip status</div>
+            <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+              <StatusChip status="Pending" live/>
+              <StatusChip status="Accepted" live/>
+              <StatusChip status="InProgress" live/>
+              <StatusChip status="Completed"/>
+              <StatusChip status="Cancelled"/>
+            </div>
+            <div className="ds-tile__label" style={{marginTop:20}}>Suggestion chips</div>
+            <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+              <button className="sr-sugchip"><span className="sr-sugchip__icon"><Icon name="briefcase" size={12}/></span>Work</button>
+              <button className="sr-sugchip"><span className="sr-sugchip__icon"><Icon name="coffee" size={12}/></span>Monograph Coffee</button>
+              <button className="sr-sugchip"><span className="sr-sugchip__icon"><Icon name="plane" size={12}/></span>Airport</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* MAP & ROUTE */}
+      <section className="ds-section">
+        <div className="ds-sec-head">
+          <div><div className="sr-eyebrow" style={{marginBottom:6}}>04 · Map surface</div><h2 className="sr-h2">Stylized,<br/>not styled.</h2></div>
+          <p>OSM + Leaflet stays (per brief). We ship a muted tile style: paper background, white streets, warm parks, cool water. Markers are typographic and readable at 10% zoom.</p>
+        </div>
+        <StylizedMap height={420} driver={{ x: 18, y: 78 }} showDriverPath={true} />
+      </section>
+
+      {/* PRINCIPLES */}
+      <section className="ds-section">
+        <div className="ds-sec-head">
+          <div><div className="sr-eyebrow" style={{marginBottom:6}}>05 · Guardrails</div><h2 className="sr-h2">Six rules,<br/>observed.</h2></div>
+          <p>Straight from the brief. Printed here because a system that lives only in a file is a system that decays.</p>
+        </div>
+        <ol style={{margin:0, padding:0, listStyle:'none', display:'grid', gridTemplateColumns:'1fr 1fr', gap:16}}>
+          {[
+            ['One accent', 'Orange against neutral. No rainbow of brand colors.'],
+            ['Hover + disabled', 'Every clickable thing has both. Disabled is never greyed text with a pointer.'],
+            ['Color + label', 'Status always carries a text label alongside its colour. Prints clean on receipts.'],
+            ['Empty ≠ blank', 'Empty states include an icon, one sentence, and a CTA where useful.'],
+            ['Three sizes', 'Big number · heading · body. No orchestra of type on one screen.'],
+            ['Breathe', 'Maps and tables get whitespace. Nothing touches the viewport edge on desktop.'],
+          ].map(([k,v],i)=>(
+            <li key={k} className="ds-tile" style={{display:'grid', gridTemplateColumns:'auto 1fr', gap:14}}>
+              <span className="sr-num" style={{fontSize:28, lineHeight:1, color:'var(--sr-accent)'}}>0{i+1}</span>
+              <div>
+                <div style={{fontFamily:'var(--sr-serif)', fontSize:18, marginBottom:2}}>{k}</div>
+                <div className="sr-small">{v}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+    </main>
+  </div>
+);
+
+const DEFAULTS = /*EDITMODE-BEGIN*/{
+  "typeMode": "simpler",
+  "startRoute": "ds"
+}/*EDITMODE-END*/;
+
+const TYPE_MODES = [
+  { id: 'editorial', name: 'Editorial (current)', sample: 'Fraunces · Geist · Mono', note: '4 faces — most expressive' },
+  { id: 'simpler',   name: 'Simpler serif',       sample: 'Source Serif · Geist',    note: '2 faces — serif + sans, no italic display' },
+  { id: 'minimal',   name: 'All sans',            sample: 'Inter Tight only',        sansNote: true, note: '1 family — quietest, most operational' },
+];
+
+const Tweaks = ({ typeMode, setTypeMode, open, setOpen }) => (
+  <div className={`sr-tweaks no-print ${open ? 'is-open' : ''}`}>
+    <div className="sr-tweaks__head">
+      <span>Tweaks</span>
+      <button className="sr-tweaks__close" onClick={() => setOpen(false)} aria-label="Close tweaks">
+        <Icon name="x" size={14} />
+      </button>
+    </div>
+    <div className="sr-tweaks__body">
+      <div className="sr-tweaks__group">
+        <label className="sr-tweaks__label">Type system</label>
+        <div className="sr-tweaks__options">
+          {TYPE_MODES.map(m => (
+            <button
+              key={m.id}
+              className={`sr-tweaks__opt ${typeMode === m.id ? 'is-on' : ''}`}
+              onClick={() => setTypeMode(m.id)}
+            >
+              <strong>{m.name}</strong>
+              <small>{m.note}</small>
+              <div className="sr-tweaks__sample" style={{
+                fontFamily: m.id === 'editorial' ? 'Fraunces, serif'
+                         : m.id === 'simpler'   ? 'Source Serif 4, serif'
+                         : 'Inter Tight, sans-serif',
+                fontSize: 16,
+                fontStyle: m.id === 'minimal' ? 'normal' : 'italic',
+              }}>
+                A quiet way to move.
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="sr-tweaks__group" style={{ marginBottom: 0 }}>
+        <div className="sr-small" style={{ fontSize: 11, color: 'var(--sr-ink-4)' }}>
+          Switching previews the whole app. Your choice persists.
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+// ============================================================
+// ROUTER
+// ============================================================
+const routes = {
+  'ds':       { label: 'Foundations', node: <DesignSystem /> },
+  'login':    { label: 'Login',       node: <LoginScreen onLogin={() => (window.location.hash = 'totp')} /> },
+  'totp':     { label: '2FA',         node: <TotpScreen onVerify={() => (window.location.hash = 'book')} onBack={() => (window.location.hash = 'login')} /> },
+  'register': { label: 'Register',    node: <RegisterScreen onBack={() => (window.location.hash = 'login')} /> },
+  'book':     { label: 'Booking',     node: <BookingScreen onBook={() => (window.location.hash = 'trip')} /> },
+  'trip':     { label: 'Active trip', node: <ActiveTripScreen /> },
+  'history':  { label: 'History',     node: <HistoryScreen /> },
+  'receipt':  { label: 'Receipt',     node: <ReceiptScreen /> },
+  'states':   { label: 'States',      node: <StatesScreen /> },
+};
+
+const App = () => {
+  const saved = (typeof localStorage !== 'undefined' && localStorage.getItem('sr-route')) || DEFAULTS.startRoute;
+  const initial = (window.location.hash || `#${saved}`).replace('#','');
+  const [route, setRoute] = useState(routes[initial] ? initial : 'ds');
+
+  // Type mode — persisted locally AND via edit-mode protocol
+  const savedType = (typeof localStorage !== 'undefined' && localStorage.getItem('sr-type-mode')) || DEFAULTS.typeMode;
+  const [typeMode, setTypeModeState] = useState(savedType);
+  const setTypeMode = (m) => {
+    setTypeModeState(m);
+    try { localStorage.setItem('sr-type-mode', m); } catch {}
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { typeMode: m } }, '*');
+  };
+  useEffect(() => { document.body.setAttribute('data-type-mode', typeMode); }, [typeMode]);
+
+  // Edit mode (Tweaks toggle)
+  const [tweaksOpen, setTweaksOpen] = useState(false);
+  useEffect(() => {
+    const onMsg = (e) => {
+      if (e.data?.type === '__activate_edit_mode') setTweaksOpen(true);
+      if (e.data?.type === '__deactivate_edit_mode') setTweaksOpen(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  useEffect(() => {
+    const onHash = () => {
+      const r = window.location.hash.replace('#','') || 'ds';
+      if (routes[r]) {
+        setRoute(r);
+        try { localStorage.setItem('sr-route', r); } catch {}
+      }
+    };
+    window.addEventListener('hashchange', onHash);
+    if (!window.location.hash) window.location.hash = route;
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const go = (r) => { window.location.hash = r; };
+
+  return (
+    <>
+      {/* Screen switcher */}
+      <div className="sr-switcher no-print">
+        <span className="sr-switcher__label">SwiftRide</span>
+        {Object.entries(routes).map(([k, v]) => (
+          <button
+            key={k}
+            className={`sr-switcher__btn ${route === k ? 'is-active' : ''}`}
+            onClick={() => go(k)}
+          >{v.label}</button>
+        ))}
+      </div>
+      <Tweaks typeMode={typeMode} setTypeMode={setTypeMode} open={tweaksOpen} setOpen={setTweaksOpen} />
+      <div data-screen-label={`0${Object.keys(routes).indexOf(route)+1} ${routes[route].label}`}>
+        {routes[route].node}
+      </div>
+    </>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
