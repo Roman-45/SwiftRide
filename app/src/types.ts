@@ -1,6 +1,6 @@
 export type Role = 'passenger' | 'driver' | 'admin';
 
-export type DriverStatus = 'pending' | 'approved' | 'suspended';
+export type DriverApproval = 'approved' | 'pending' | 'suspended' | 'unknown';
 
 export type TripStatus = 'Pending' | 'Accepted' | 'InProgress' | 'Completed' | 'Cancelled';
 
@@ -10,11 +10,12 @@ export interface User {
   email: string;
   phone: string;
   role: Role;
-  driverStatus?: DriverStatus;
-  rating?: number;
-  ratingCount?: number;
-  plate?: string;
   createdAt: string;
+  // Optional driver fields — populated on admin-side lists.
+  isApproved?: boolean;
+  isAvailable?: boolean;
+  licensePlate?: string;
+  vehicleModel?: string;
 }
 
 export interface LatLng { lat: number; lng: number }
@@ -31,16 +32,11 @@ export interface Trip {
   driverId: string | null;
   pickup: Place;
   dropoff: Place;
-  distanceMi: number;
-  fare: number | null;
+  distanceKm: number | null;
+  fareRwf: number | null;
   status: TripStatus;
   createdAt: string;
-  acceptedAt?: string;
-  startedAt?: string;
-  completedAt?: string;
-  driverLocation?: LatLng;
-  rating?: number;
-  review?: string;
+  completedAt?: string | null;
 }
 
 export interface Suggestion {
@@ -54,30 +50,59 @@ export interface DriverCard {
   driverId: string;
   name: string;
   rating: number;
-  ratingCount: number;
-  plate: string;
+  reviewCount: number;
+  licensePlate: string;
+  vehicleModel: string;
   phone: string;
-  etaMinutes: number;
+}
+
+export interface DriverLiveLocation {
+  coords: LatLng;
+  distanceKm: number | null;
+  etaMinutes: number | null;
+  etaTarget: 'to_pickup' | 'to_dropoff' | null;
 }
 
 export interface Earnings {
   today: number;
-  seven: number;
-  thirty: number;
-  allTime: number;
-  tripsToday: number;
-  onlineToday: string;
-  chart: { day: string; value: number; today?: boolean }[];
+  week: number;
+  month: number;
+  total: number;
+  completedTrips: number;
+  daily: { day: string; amount: number; tripCount: number }[];
 }
 
 export interface AdminStats {
-  passengers: number;
-  drivers: number;
+  totalPassengers: number;
+  totalDrivers: number;
   approvedDrivers: number;
-  trips: number;
+  totalTrips: number;
   completedTrips: number;
   pendingTrips: number;
-  revenue: number;
+  totalRevenue: number;
+}
+
+export interface EstimateResult {
+  distanceKm: number;
+  fareRwf: number;
+  minutes: number;
+}
+
+export interface Receipt {
+  tripId: string;
+  status: TripStatus;
+  createdAt: string;
+  completedAt?: string | null;
+  pickup: Place;
+  dropoff: Place;
+  distanceKm: number | null;
+  fareRwf: number | null;
+  driverName?: string | null;
+  driverPhone?: string | null;
+  licensePlate?: string | null;
+  vehicleModel?: string | null;
+  paymentStatus?: string | null;
+  paidAt?: string | null;
 }
 
 export interface AuthResponse {

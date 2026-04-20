@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { acceptTrip, getActiveTripForDriver, getEarnings, getPendingTrips } from '../api/client';
+import { acceptTrip, ApiError, getEarnings, getPendingTrips, setDriverAvailability } from '../api/client';
 import type { Earnings, Trip } from '../types';
 import { PageHead } from '../components/PageHead';
 import { Icon } from '../components/Icon';
@@ -11,6 +11,9 @@ import { useToast } from '../components/Toast';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { RouteLine } from '../components/RouteLine';
+import { formatKm, formatRwf } from '../lib/format';
+
+type ApprovalState = 'loading' | 'approved' | 'blocked';
 
 export function DriverDashboardPage() {
   const { user } = useAuth();
@@ -20,31 +23,35 @@ export function DriverDashboardPage() {
   const [available, setAvailable] = useState(true);
   const [trips, setTrips] = useState<Trip[] | null>(null);
   const [earnings, setEarnings] = useState<Earnings | null>(null);
+  const [approval, setApproval] = useState<ApprovalState>('loading');
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!user) return;
+    setError(null);
+    // Earnings is always safe; pending-trips 403s if unapproved, which is how
+    // we discover the driver's approval state without a dedicated endpoint.
+    const earningsP = getEarnings().then(setEarnings).catch(() => {});
     try {
-      setError(null);
-      const [t, e] = await Promise.all([getPendingTrips(user.id), getEarnings(user.id)]);
-      setTrips(t);
-      setEarnings(e);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load dashboard.');
+      const list = await getPendingTrips();
+      setTrips(list);
+      setApproval('approved');
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 403 || e.status === 401)) {
+        setApproval('blocked');
+        setTrips([]);
+      } else {
+        setError(e instanceof Error ? e.message : 'Could not load dashboard.');
+      }
     }
+    await earningsP;
   }, [user]);
 
   useEffect(() => { void load(); }, [load]);
 
-  useEffect(() => {
-    if (!user) return;
-    getActiveTripForDriver(user.id).then((t) => { if (t) nav(`/driver/trip/${t.id}`, { replace: true }); }).catch(() => {});
-  }, [user, nav]);
-
   const handleAccept = async (tripId: string) => {
-    if (!user) return;
     try {
-      await acceptTrip(user.id, tripId);
+      await acceptTrip(tripId);
       toast('ok', 'Trip accepted.');
       nav(`/driver/trip/${tripId}`);
     } catch (err) {
@@ -52,7 +59,16 @@ export function DriverDashboardPage() {
     }
   };
 
-  const unapproved = user?.driverStatus !== 'approved';
+  const toggleAvailable = async () => {
+    const next = !available;
+    setAvailable(next); // optimistic
+    try {
+      await setDriverAvailability(next);
+    } catch (err) {
+      setAvailable(!next);
+      toast('err', err instanceof Error ? err.message : 'Could not change availability.');
+    }
+  };
 
   return (
     <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
@@ -60,11 +76,11 @@ export function DriverDashboardPage() {
         eyebrow="Driver · Dashboard"
         title={<>Good to see you, {user?.name.split(' ')[0]}. <span className="sr-italic text-ink-3">Let's roll.</span></>}
         lede="Availability, pending requests, and your earnings — one surface, no tabs."
-        actions={!unapproved && (
+        actions={approval === 'approved' && (
           <Button
             size="sm"
             variant={available ? 'danger' : 'primary'}
-            onClick={() => setAvailable((v) => !v)}
+            onClick={toggleAvailable}
             iconLeft={<Icon name={available ? 'x' : 'check'} size={13} />}
           >{available ? 'Go offline' : 'Go online'}</Button>
         )}
@@ -72,8 +88,10 @@ export function DriverDashboardPage() {
 
       {error && <InlineError message={error} onRetry={load} />}
 
-      {unapproved ? (
-        <AwaitingApproval status={user?.driverStatus ?? 'pending'} />
+      {approval === 'blocked' ? (
+        <AwaitingApproval />
+      ) : approval === 'loading' ? (
+        <Card><SkeletonRow lines={3} /></Card>
       ) : (
         <>
           <AvailabilityBanner available={available} />
@@ -146,14 +164,14 @@ function QueuePanel({ trips, available, onAccept }: { trips: Trip[] | null; avai
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <span className="sr-table__num">{t.id}</span>
                   <StatusChip status="Pending" live />
-                  <span className="sr-micro">{t.distanceMi} mi</span>
+                  {t.distanceKm != null && <span className="sr-micro">{formatKm(t.distanceKm)}</span>}
                 </div>
                 <RouteLine pickup={t.pickup} dropoff={t.dropoff} compact />
               </div>
               <div className="flex items-center gap-4 justify-between sm:flex-col sm:items-end sm:gap-2">
                 <div>
                   <div className="sr-micro">Est. fare</div>
-                  <div className="sr-num text-[22px] tracking-tight">${(t.fare ?? 0).toFixed(2)}</div>
+                  <div className="sr-num text-[22px] tracking-tight">{formatRwf(t.fareRwf)}</div>
                 </div>
                 <Button size="sm" variant="primary" onClick={() => onAccept(t.id)} iconLeft={<Icon name="check" size={13} />}>Accept</Button>
               </div>
@@ -167,45 +185,50 @@ function QueuePanel({ trips, available, onAccept }: { trips: Trip[] | null; avai
 
 function EarningsPanel({ earnings }: { earnings: Earnings | null }) {
   if (!earnings) return <Card><SkeletonRow lines={5} /></Card>;
-  const max = Math.max(...earnings.chart.map((d) => d.value));
+  const max = Math.max(1, ...earnings.daily.map((d) => d.amount));
+  // Flag the most recent day in the series as "today".
+  const todayIdx = earnings.daily.length - 1;
   return (
     <Card padding="none" className="overflow-hidden">
       <div className="p-5 border-b border-line">
         <div className="sr-eyebrow mb-1">Earnings</div>
         <div className="flex items-baseline gap-2">
-          <span className="sr-num text-[14px] text-ink-3">$</span>
-          <span className="sr-num text-[40px] leading-none tracking-tight">{earnings.today.toFixed(2)}</span>
+          <span className="sr-num text-[40px] leading-none tracking-tight">{formatRwf(earnings.today)}</span>
           <span className="sr-small ml-2">today</span>
         </div>
-        <div className="sr-micro mt-1.5">{earnings.tripsToday} trips · {earnings.onlineToday} online</div>
+        <div className="sr-micro mt-1.5">{earnings.completedTrips} completed trips to date</div>
       </div>
 
-      <div className="p-5 pb-2">
-        <div className="sr-eyebrow mb-2.5">Last 7 days</div>
-        <div className="grid grid-cols-7 gap-2 h-28 items-end">
-          {earnings.chart.map((d) => {
-            const h = Math.max(4, (d.value / max) * 100);
-            return (
-              <div key={d.day} className="flex flex-col items-center gap-1.5 h-full">
-                <div className="flex-1 flex items-end w-full">
-                  <div
-                    title={`${d.day}: $${d.value.toFixed(2)}`}
-                    className="w-full rounded-sm"
-                    style={{ height: `${h}%`, background: d.today ? 'var(--sr-accent)' : 'var(--sr-ink-4)', opacity: d.today ? 1 : 0.5 }}
-                  />
+      {earnings.daily.length > 0 && (
+        <div className="p-5 pb-2">
+          <div className="sr-eyebrow mb-2.5">Recent days</div>
+          <div className="grid gap-2 h-28 items-end" style={{ gridTemplateColumns: `repeat(${earnings.daily.length}, 1fr)` }}>
+            {earnings.daily.map((d, i) => {
+              const h = Math.max(4, (d.amount / max) * 100);
+              const isToday = i === todayIdx;
+              const label = new Date(d.day).toLocaleDateString('en-GB', { weekday: 'short' });
+              return (
+                <div key={d.day} className="flex flex-col items-center gap-1.5 h-full">
+                  <div className="flex-1 flex items-end w-full">
+                    <div
+                      title={`${label}: ${formatRwf(d.amount)} · ${d.tripCount} trips`}
+                      className="w-full rounded-sm"
+                      style={{ height: `${h}%`, background: isToday ? 'var(--sr-accent)' : 'var(--sr-ink-4)', opacity: isToday ? 1 : 0.5 }}
+                    />
+                  </div>
+                  <div className="sr-micro text-[10px]">{label}</div>
                 </div>
-                <div className="sr-micro text-[10px]">{d.day}</div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-4 border-t border-line">
         <Cell label="Today"    value={earnings.today} />
-        <Cell label="7 days"   value={earnings.seven}  divider />
-        <Cell label="30 days"  value={earnings.thirty} divider />
-        <Cell label="All-time" value={earnings.allTime} divider />
+        <Cell label="Week"     value={earnings.week}  divider />
+        <Cell label="Month"    value={earnings.month} divider />
+        <Cell label="All-time" value={earnings.total} divider />
       </div>
     </Card>
   );
@@ -215,28 +238,25 @@ function Cell({ label, value, divider }: { label: string; value: number; divider
   return (
     <div className="p-3.5" style={{ borderLeft: divider ? '1px solid var(--sr-line)' : 'none' }}>
       <div className="sr-eyebrow text-[9px] mb-1.5">{label}</div>
-      <div className="sr-num text-[17px] tracking-tight">${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+      <div className="sr-num text-[15px] tracking-tight">{formatRwf(value)}</div>
     </div>
   );
 }
 
-function AwaitingApproval({ status }: { status: string }) {
-  const isSuspended = status === 'suspended';
+function AwaitingApproval() {
   return (
     <Card padding="lg" className="grid sm:grid-cols-[72px_1fr] gap-6 items-start">
       <div
         className="w-16 h-16 rounded-full grid place-items-center"
-        style={{ background: isSuspended ? 'var(--sr-err-soft)' : 'var(--sr-accent-soft)', color: isSuspended ? 'var(--sr-err)' : 'var(--sr-accent-hover)' }}
+        style={{ background: 'var(--sr-accent-soft)', color: 'var(--sr-accent-hover)' }}
       >
         <Icon name="shield" size={28} />
       </div>
       <div className="max-w-xl">
-        <div className="sr-eyebrow mb-2">Account status · {isSuspended ? 'Suspended' : 'Pending approval'}</div>
-        <h2 className="sr-h2 m-0 mb-3">{isSuspended ? <>Account <span className="sr-italic text-err">suspended</span>.</> : <>You're <span className="sr-italic text-accent">almost on the road</span>.</>}</h2>
+        <div className="sr-eyebrow mb-2">Account status · Pending approval</div>
+        <h2 className="sr-h2 m-0 mb-3">You're <span className="sr-italic text-accent">almost on the road</span>.</h2>
         <p className="sr-body text-ink-2">
-          {isSuspended
-            ? 'Your driver account has been suspended. Reach out to onboarding to review the reason and next steps.'
-            : "An administrator is reviewing your documents. Trips are unavailable until you're approved — usually within one business day."}
+          An administrator is reviewing your documents. Trips are unavailable until you're approved — usually within one business day.
         </p>
         <div className="mt-5 flex gap-2 flex-wrap">
           <Button size="sm" variant="secondary" iconLeft={<Icon name="phone" size={13} />}>Contact onboarding</Button>

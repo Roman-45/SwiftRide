@@ -46,7 +46,7 @@ export function DriverLayout() {
         </div>
         <div className="flex items-center gap-3">
           <span className="hidden sm:inline font-mono text-[11px] tracking-wider uppercase text-white/60">
-            {user?.driverStatus === 'approved' ? 'Approved' : user?.driverStatus === 'pending' ? 'Awaiting approval' : 'Suspended'}
+            Driver
           </span>
           <div className="flex items-center gap-2.5 pl-3 border-l border-white/10">
             <div className="sr-avatar sr-avatar--sm" style={{ background: '#1B4C9A', color: 'white' }}>{initials}</div>

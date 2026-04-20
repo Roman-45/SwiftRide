@@ -5,7 +5,7 @@ import { RequireAuth, RequireRole } from './auth/guards';
 import { ToastProvider } from './components/Toast';
 import { EmptyState } from './components/EmptyState';
 import { Icon } from './components/Icon';
-import { getActiveTripForDriver, getActiveTripForPassenger } from './api/client';
+import { getMyTrips } from './api/client';
 
 import { PassengerLayout } from './layouts/PassengerLayout';
 import { DriverLayout } from './layouts/DriverLayout';
@@ -37,14 +37,20 @@ function GuardLogin({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Passenger hits /passenger/active without a trip id — find the current one
+// by scanning their own trip list.
 function PassengerActiveRedirect() {
   const { user } = useAuth();
   const nav = useNavigate();
   const [none, setNone] = useState(false);
   useEffect(() => {
     if (!user) return;
-    getActiveTripForPassenger(user.id)
-      .then((t) => { if (t) nav(`/passenger/trip/${t.id}`, { replace: true }); else setNone(true); })
+    getMyTrips()
+      .then((trips) => {
+        const active = trips.find((t) => ['Pending', 'Accepted', 'InProgress'].includes(t.status));
+        if (active) nav(`/passenger/trip/${active.id}`, { replace: true });
+        else setNone(true);
+      })
       .catch(() => setNone(true));
   }, [user, nav]);
   if (!none) return null;
@@ -62,29 +68,10 @@ function PassengerActiveRedirect() {
   );
 }
 
+// Driver /driver/trip with no id — there's no backend endpoint that lists a
+// driver's active trip, so we just send them back to the dashboard.
 function DriverActiveRedirect() {
-  const { user } = useAuth();
-  const nav = useNavigate();
-  const [none, setNone] = useState(false);
-  useEffect(() => {
-    if (!user) return;
-    getActiveTripForDriver(user.id)
-      .then((t) => { if (t) nav(`/driver/trip/${t.id}`, { replace: true }); else setNone(true); })
-      .catch(() => setNone(true));
-  }, [user, nav]);
-  if (!none) return null;
-  return (
-    <div className="max-w-2xl mx-auto p-6">
-      <div className="sr-card">
-        <EmptyState
-          icon="car"
-          title="No active trip"
-          body="Accept a pending request from the dashboard to start driving."
-          action={<Link to="/driver" className="sr-btn sr-btn--primary sr-btn--sm"><Icon name="arrow-left" size={13} /> Back to dashboard</Link>}
-        />
-      </div>
-    </div>
-  );
+  return <Navigate to="/driver" replace />;
 }
 
 export default function App() {

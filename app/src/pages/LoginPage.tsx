@@ -11,8 +11,8 @@ export function LoginPage() {
   const { login } = useAuth();
   const nav = useNavigate();
   const [params] = useSearchParams();
-  const [email, setEmail] = useState('mira@example.com');
-  const [password, setPassword] = useState('demo1234');
+  const [email, setEmail] = useState('passenger1@swiftride.rw');
+  const [password, setPassword] = useState('Pass@123');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -85,17 +85,16 @@ export function LoginPage() {
             <summary className="sr-eyebrow cursor-pointer select-none">Demo accounts</summary>
             <div className="mt-3 grid gap-2 text-[13px]">
               {[
-                { email: 'mira@example.com',  role: 'Passenger' },
-                { email: 'dom@example.com',   role: 'Driver (approved)' },
-                { email: 'nadia@example.com', role: 'Driver (pending approval)' },
-                { email: 'elena@example.com', role: 'Admin' },
+                { email: 'passenger1@swiftride.rw', password: 'Pass@123',   role: 'Passenger' },
+                { email: 'driver1@swiftride.rw',    password: 'Driver@123', role: 'Driver (approved)' },
+                { email: 'driver2@swiftride.rw',    password: 'Driver@123', role: 'Driver (pending approval)' },
+                { email: 'admin@swiftride.rw',      password: 'Admin@123',  role: 'Admin' },
               ].map((a) => (
-                <button type="button" key={a.email} onClick={() => setEmail(a.email)} className="sr-card text-left px-3 py-2 hover:bg-surface-2 transition">
+                <button type="button" key={a.email} onClick={() => { setEmail(a.email); setPassword(a.password); }} className="sr-card text-left px-3 py-2 hover:bg-surface-2 transition">
                   <div className="font-mono text-[12px]">{a.email}</div>
-                  <div className="sr-small">{a.role}</div>
+                  <div className="sr-small">{a.role} · <code>{a.password}</code></div>
                 </button>
               ))}
-              <div className="sr-small">Password: any ≥ 4 chars, e.g. <code>demo1234</code></div>
             </div>
           </details>
         </form>

@@ -11,7 +11,9 @@ export function RegisterPage() {
   const { register } = useAuth();
   const nav = useNavigate();
   const [form, setForm] = useState({
-    name: '', email: '', phone: '', password: '', role: 'passenger' as 'passenger' | 'driver',
+    name: '', email: '', phone: '', password: '',
+    role: 'passenger' as 'passenger' | 'driver',
+    licensePlate: '', vehicleModel: '',
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -20,7 +22,15 @@ export function RegisterPage() {
     e.preventDefault();
     setError(null); setBusy(true);
     try {
-      const user = await register(form);
+      const user = await register({
+        name: form.name,
+        email: form.email,
+        phone: form.phone,
+        password: form.password,
+        role: form.role,
+        licensePlate: form.role === 'driver' ? form.licensePlate : undefined,
+        vehicleModel: form.role === 'driver' ? form.vehicleModel : undefined,
+      });
       nav(homeForRole(user.role), { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create your account.');
@@ -59,7 +69,7 @@ export function RegisterPage() {
             {({ inputId }) => <Input id={inputId} type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} required />}
           </Field>
           <Field label="Phone">
-            {({ inputId }) => <Input id={inputId} placeholder="+1 (555) 555-0100" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} required />}
+            {({ inputId }) => <Input id={inputId} placeholder="+250 78 000 0000" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} required />}
           </Field>
           <Field label="Password" hint="Minimum 6 characters.">
             {({ inputId }) => <Input id={inputId} type="password" minLength={6} value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} required />}
@@ -80,6 +90,17 @@ export function RegisterPage() {
               ))}
             </div>
           </div>
+
+          {form.role === 'driver' && (
+            <>
+              <Field label="Licence plate">
+                {({ inputId }) => <Input id={inputId} placeholder="RAA 123 A" value={form.licensePlate} onChange={(e) => setForm((f) => ({ ...f, licensePlate: e.target.value }))} />}
+              </Field>
+              <Field label="Vehicle model" hint="Optional. You can fill this in later.">
+                {({ inputId }) => <Input id={inputId} placeholder="Toyota Corolla" value={form.vehicleModel} onChange={(e) => setForm((f) => ({ ...f, vehicleModel: e.target.value }))} />}
+              </Field>
+            </>
+          )}
 
           {error && (
             <div className="flex items-start gap-2 mb-4 p-3 rounded border" style={{ background: 'var(--sr-err-soft)', borderColor: 'rgba(168,30,30,0.35)', color: 'var(--sr-err)' }}>

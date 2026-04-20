@@ -5,14 +5,15 @@ import { StatusChip } from '../components/StatusChip';
 import { StarRating } from '../components/StarRating';
 import { Icon } from '../components/Icon';
 import { useAuth } from '../auth/AuthContext';
-import { cancelTrip, getDriverCard, getDriverLocation, getTrip, reviewTrip } from '../api/client';
-import type { DriverCard, LatLng, Trip } from '../types';
+import { cancelTrip, getDriverCard, getDriverLiveLocation, getTrip, reviewTrip } from '../api/client';
+import type { DriverCard, DriverLiveLocation, Trip } from '../types';
 import { InlineError, SkeletonRow } from '../components/EmptyState';
 import { useToast } from '../components/Toast';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { RouteLine } from '../components/RouteLine';
 import { Textarea } from '../components/Field';
+import { formatKm, formatRwf, initials } from '../lib/format';
 
 export function PassengerActiveTripPage() {
   const { id } = useParams<{ id: string }>();
@@ -22,7 +23,7 @@ export function PassengerActiveTripPage() {
 
   const [trip, setTrip] = useState<Trip | null>(null);
   const [driver, setDriver] = useState<DriverCard | null>(null);
-  const [driverLoc, setDriverLoc] = useState<LatLng | null>(null);
+  const [driverLoc, setDriverLoc] = useState<DriverLiveLocation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ratingOpen, setRatingOpen] = useState(false);
@@ -52,26 +53,28 @@ export function PassengerActiveTripPage() {
     return () => clearInterval(handle);
   }, [id, load]);
 
+  // Fetch driver card once, as soon as a driver is assigned.
   useEffect(() => {
     if (!trip || !trip.driverId || driver) return;
     getDriverCard(trip.id).then(setDriver).catch(() => {});
   }, [trip, driver]);
 
+  // Poll driver location every 5 s while the driver is present and the trip
+  // is live (not terminated).
   useEffect(() => {
     if (!trip || !trip.driverId || trip.status === 'Completed' || trip.status === 'Cancelled') return;
     let mounted = true;
     const tick = () => {
-      getDriverLocation(trip.id).then((l) => { if (mounted) setDriverLoc(l); }).catch(() => {});
+      getDriverLiveLocation(trip.id).then((l) => { if (mounted) setDriverLoc(l); }).catch(() => {});
     };
     tick();
     const handle = setInterval(tick, 5000);
     return () => { mounted = false; clearInterval(handle); };
   }, [trip]);
 
-  // Auto-open the rating modal once per session when the trip first completes.
-  // If the user dismisses without rating, we don't nag on every poll.
+  // Open the rating modal once per session when the trip completes.
   useEffect(() => {
-    if (trip?.status === 'Completed' && !trip.rating && !ratingPrompted) {
+    if (trip?.status === 'Completed' && !ratingPrompted) {
       setRatingOpen(true);
       setRatingPrompted(true);
     }
@@ -96,6 +99,8 @@ export function PassengerActiveTripPage() {
       toast('ok', 'Thanks for the review.');
       setRatingOpen(false);
       await load();
+    } catch (e) {
+      toast('err', e instanceof Error ? e.message : 'Could not submit review.');
     } finally {
       setSubmittingReview(false);
     }
@@ -141,7 +146,7 @@ export function PassengerActiveTripPage() {
         <Map
           pickup={trip.pickup.coords}
           dropoff={trip.dropoff.coords}
-          driver={live ? driverLoc ?? undefined : undefined}
+          driver={live ? driverLoc?.coords ?? undefined : undefined}
           height={520}
         />
 
@@ -157,14 +162,20 @@ export function PassengerActiveTripPage() {
             </Card>
           )}
 
-          {live && driver && <DriverInfoCard driver={driver} status={trip.status} />}
+          {live && driver && (
+            <DriverInfoCard
+              driver={driver}
+              etaMinutes={driverLoc?.etaMinutes ?? null}
+              etaTarget={driverLoc?.etaTarget ?? (trip.status === 'InProgress' ? 'to_dropoff' : 'to_pickup')}
+            />
+          )}
 
           <Card>
             <div className="sr-eyebrow mb-3">Route</div>
             <RouteLine pickup={trip.pickup} dropoff={trip.dropoff} />
             <div className="mt-3 pt-3 border-t border-line flex justify-between font-mono text-[11px] tracking-wider uppercase text-ink-3">
-              <span>{trip.distanceMi} mi</span>
-              {trip.fare != null && <span>${trip.fare.toFixed(2)}</span>}
+              <span>{formatKm(trip.distanceKm)}</span>
+              {trip.fareRwf != null && <span>{formatRwf(trip.fareRwf)}</span>}
             </div>
           </Card>
 
@@ -205,29 +216,42 @@ export function PassengerActiveTripPage() {
   );
 }
 
-function DriverInfoCard({ driver, status }: { driver: DriverCard; status: Trip['status'] }) {
+function DriverInfoCard({
+  driver, etaMinutes, etaTarget,
+}: {
+  driver: DriverCard;
+  etaMinutes: number | null;
+  etaTarget: 'to_pickup' | 'to_dropoff' | null;
+}) {
   return (
     <Card>
       <div className="sr-eyebrow mb-3">Your driver</div>
       <div className="flex items-center gap-3.5">
         <div className="sr-avatar sr-avatar--lg" style={{ background: 'var(--sr-info)' }}>
-          {driver.name.split(' ').map((n) => n[0]).slice(0, 2).join('')}
+          {initials(driver.name)}
         </div>
         <div className="flex-1 min-w-0">
           <div className="font-serif text-[20px] tracking-tight">{driver.name}</div>
           <div className="sr-small mt-0.5 flex items-center gap-2">
             <StarRating value={driver.rating} size={14} /> <span>{driver.rating.toFixed(1)}</span>
-            <span className="text-ink-4">· {driver.ratingCount} ratings</span>
+            {driver.reviewCount > 0 && <span className="text-ink-4">· {driver.reviewCount} reviews</span>}
           </div>
-          <div className="sr-micro mt-1">{driver.plate}</div>
+          <div className="sr-micro mt-1">{driver.vehicleModel} · {driver.licensePlate}</div>
         </div>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2">
-        <a href={`tel:${driver.phone.replace(/\s/g, '')}`} className="sr-btn sr-btn--secondary sr-btn--sm">
-          <Icon name="phone" size={14} /> Call driver
+        <a
+          href={driver.phone ? `tel:${driver.phone.replace(/\s/g, '')}` : '#'}
+          className="sr-btn sr-btn--secondary sr-btn--sm"
+          aria-disabled={!driver.phone}
+        >
+          <Icon name="phone" size={14} /> {driver.phone || 'No phone'}
         </a>
         <div className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded bg-accent-soft text-accent-hover font-mono text-[11px] tracking-wider uppercase">
-          <Icon name="clock" size={13} /> {driver.etaMinutes} min · {status === 'InProgress' ? 'to dropoff' : 'to pickup'}
+          <Icon name="clock" size={13} />
+          {etaMinutes != null ? `${etaMinutes} min` : '—'}
+          {' · '}
+          {etaTarget === 'to_dropoff' ? 'to dropoff' : 'to pickup'}
         </div>
       </div>
     </Card>

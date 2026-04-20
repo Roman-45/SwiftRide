@@ -10,7 +10,11 @@ interface AuthState {
 
 interface AuthContextValue extends AuthState {
   login: (email: string, password: string) => Promise<User>;
-  register: (params: { name: string; email: string; phone: string; password: string; role: Exclude<Role, 'admin'> }) => Promise<User>;
+  register: (params: {
+    name: string; email: string; phone: string; password: string;
+    role: Exclude<Role, 'admin'>;
+    licensePlate?: string; vehicleModel?: string;
+  }) => Promise<User>;
   logout: () => void;
 }
 
@@ -37,7 +41,17 @@ function writeSession(state: { user: User; token: string } | null) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ user: null, token: null, ready: false });
 
-  useEffect(() => { setState(readSession()); }, []);
+  useEffect(() => {
+    const saved = readSession();
+    setState(saved);
+    // If we have a token, verify it with the backend in the background.
+    // On 401 the http layer clears sessionStorage; we then drop the user.
+    if (saved.token) {
+      api.getMe()
+        .then((user) => setState((s) => ({ ...s, user })))
+        .catch(() => setState({ user: null, token: null, ready: true }));
+    }
+  }, []);
 
   const handleLogin = useCallback(async (email: string, password: string) => {
     const res = await api.login(email, password);

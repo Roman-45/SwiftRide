@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useAuth } from '../auth/AuthContext';
-import { completeTrip, getTrip, startTrip } from '../api/client';
+import { completeTrip, getDriverTrip, pushDriverLocation, startTrip } from '../api/client';
 import type { Trip } from '../types';
 import { Map } from '../components/Map';
 import { StatusChip } from '../components/StatusChip';
@@ -11,21 +10,27 @@ import { useToast } from '../components/Toast';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { RouteLine } from '../components/RouteLine';
+import { formatKm, formatRwf } from '../lib/format';
+
+// Backend expects Kigali coords (-3..-1, 28.8..30.9). If the browser is
+// elsewhere we still post *something* near the pickup so the driver-side
+// location updates surface on the passenger map during the demo.
+const FALLBACK_CENTER = { lat: -1.9441, lng: 30.0619 };
 
 export function DriverActiveTripPage() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
   const nav = useNavigate();
   const { toast } = useToast();
 
   const [trip, setTrip] = useState<Trip | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [locationWarned, setLocationWarned] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      setTrip(await getTrip(id));
+      setTrip(await getDriverTrip(id));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load trip.');
@@ -34,12 +39,50 @@ export function DriverActiveTripPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Push the driver's current location every 10 s while InProgress — real
+  // backend requirement. We fall back to Kigali coords on geolocation errors
+  // rather than blocking the trip flow.
+  const warnedRef = useRef(locationWarned);
+  warnedRef.current = locationWarned;
+  useEffect(() => {
+    if (!trip || trip.status !== 'InProgress') return;
+
+    const send = () => {
+      if (!navigator.geolocation) {
+        void pushDriverLocation(FALLBACK_CENTER);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const inRwanda = pos.coords.latitude >= -3 && pos.coords.latitude <= -1
+                        && pos.coords.longitude >= 28.8 && pos.coords.longitude <= 30.9;
+          const coords = inRwanda
+            ? { lat: pos.coords.latitude, lng: pos.coords.longitude }
+            : FALLBACK_CENTER;
+          void pushDriverLocation(coords);
+        },
+        () => {
+          if (!warnedRef.current) {
+            toast('info', 'Location permission denied — sharing fallback coordinates.');
+            setLocationWarned(true);
+          }
+          void pushDriverLocation(FALLBACK_CENTER);
+        },
+        { timeout: 6000 },
+      );
+    };
+
+    send();
+    const handle = setInterval(send, 10000);
+    return () => clearInterval(handle);
+  }, [trip, toast]);
+
   const handleStart = async () => {
-    if (!trip || !user) return;
+    if (!trip) return;
     setBusy(true);
     try {
-      const t = await startTrip(user.id, trip.id);
-      setTrip(t);
+      await startTrip(trip.id);
+      await load();
       toast('info', 'Trip started · location sharing is live.');
     } catch (e) {
       toast('err', e instanceof Error ? e.message : 'Could not start trip.');
@@ -47,10 +90,10 @@ export function DriverActiveTripPage() {
   };
 
   const handleComplete = async () => {
-    if (!trip || !user) return;
+    if (!trip) return;
     setBusy(true);
     try {
-      await completeTrip(user.id, trip.id);
+      await completeTrip(trip.id);
       toast('ok', 'Trip complete · earnings updated.');
       setTimeout(() => nav('/driver', { replace: true }), 800);
     } catch (e) {
@@ -81,22 +124,17 @@ export function DriverActiveTripPage() {
         <div className="flex flex-col gap-4">
           <Card>
             <div className="sr-eyebrow mb-3">Passenger</div>
-            <div className="flex items-center gap-3.5">
-              <div className="sr-avatar sr-avatar--lg" style={{ background: 'var(--sr-accent)', color: 'white' }}>PA</div>
-              <div className="flex-1 min-w-0">
-                <div className="font-serif text-[20px] tracking-tight">Passenger</div>
-                <div className="sr-small">Confirmation sent · on their way out</div>
-              </div>
-              <a href="tel:+14155550142" className="sr-btn sr-btn--secondary sr-btn--sm"><Icon name="phone" size={14} /> Call</a>
-            </div>
+            <p className="sr-small">
+              Passenger contact isn't returned by this endpoint — reach them through support if needed.
+            </p>
           </Card>
 
           <Card>
             <div className="sr-eyebrow mb-3">Route</div>
             <RouteLine pickup={trip.pickup} dropoff={trip.dropoff} />
             <div className="mt-3 pt-3 border-t border-line flex justify-between font-mono text-[11px] tracking-wider uppercase text-ink-3">
-              <span>{trip.distanceMi} mi</span>
-              {trip.fare != null && <span>${trip.fare.toFixed(2)}</span>}
+              <span>{formatKm(trip.distanceKm)}</span>
+              {trip.fareRwf != null && <span>{formatRwf(trip.fareRwf)}</span>}
             </div>
           </Card>
 

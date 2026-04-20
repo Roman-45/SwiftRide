@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { approveDriver, getAdminUsers, suspendDriver } from '../api/client';
+import { approveDriver, getAdminDrivers, getAdminPassengers, suspendDriver } from '../api/client';
 import type { User } from '../types';
 import { Icon } from '../components/Icon';
-import { StarRating } from '../components/StarRating';
 import { EmptyState, InlineError, SkeletonRow } from '../components/EmptyState';
 import { useToast } from '../components/Toast';
 import { Card } from '../components/Card';
@@ -15,49 +14,58 @@ type Tab = 'drivers' | 'passengers';
 export function AdminUsersPage() {
   const { toast } = useToast();
   const [tab, setTab] = useState<Tab>('drivers');
-  const [users, setUsers] = useState<User[] | null>(null);
+  const [drivers, setDrivers] = useState<User[] | null>(null);
+  const [passengers, setPassengers] = useState<User[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState('');
 
   const load = useCallback(() => {
     setError(null);
-    getAdminUsers().then(setUsers).catch((e) => setError(e.message));
+    getAdminDrivers().then(setDrivers).catch((e) => setError(e.message));
+    getAdminPassengers().then(setPassengers).catch((e) => setError(e.message));
   }, []);
 
   useEffect(load, [load]);
 
-  const rows = useMemo(() => {
-    if (!users) return null;
-    const target = tab === 'drivers' ? 'driver' : 'passenger';
-    return users
-      .filter((u) => u.role === target)
-      .filter((u) => q.trim().length === 0 || [u.name, u.email, u.phone].some((f) => f.toLowerCase().includes(q.toLowerCase())));
-  }, [users, tab, q]);
+  const current: User[] | null = tab === 'drivers' ? drivers : passengers;
 
-  const counts = useMemo(() => {
-    if (!users) return { drivers: 0, passengers: 0 };
-    return {
-      drivers:    users.filter((u) => u.role === 'driver').length,
-      passengers: users.filter((u) => u.role === 'passenger').length,
-    };
-  }, [users]);
+  const rows = useMemo(() => {
+    if (!current) return null;
+    return current.filter(
+      (u) => q.trim().length === 0 || [u.name, u.email, u.phone].some((f) => f.toLowerCase().includes(q.toLowerCase())),
+    );
+  }, [current, q]);
+
+  const counts = {
+    drivers: drivers?.length ?? 0,
+    passengers: passengers?.length ?? 0,
+  };
 
   const { pageItems, pagination } = usePagination({ items: rows, resetKey: `${tab}|${q}` });
 
-  const handleApprove = async (id: string) => {
+  const patchDriver = (id: string, patch: Partial<User>) =>
+    setDrivers((list) => list?.map((x) => x.id === id ? { ...x, ...patch } : x) ?? null);
+
+  const handleApprove = async (u: User) => {
+    patchDriver(u.id, { isApproved: true });
     try {
-      const updated = await approveDriver(id);
-      setUsers((u) => u?.map((x) => x.id === id ? updated : x) ?? null);
-      toast('ok', `${updated.name} approved.`);
-    } catch (e) { toast('err', e instanceof Error ? e.message : 'Could not approve.'); }
+      await approveDriver(u.id);
+      toast('ok', `${u.name} approved.`);
+    } catch (e) {
+      patchDriver(u.id, { isApproved: false });
+      toast('err', e instanceof Error ? e.message : 'Could not approve.');
+    }
   };
 
-  const handleSuspend = async (id: string) => {
+  const handleSuspend = async (u: User) => {
+    patchDriver(u.id, { isApproved: false });
     try {
-      const updated = await suspendDriver(id);
-      setUsers((u) => u?.map((x) => x.id === id ? updated : x) ?? null);
-      toast('info', `${updated.name} suspended.`);
-    } catch (e) { toast('err', e instanceof Error ? e.message : 'Could not suspend.'); }
+      await suspendDriver(u.id);
+      toast('info', `${u.name} suspended.`);
+    } catch (e) {
+      patchDriver(u.id, { isApproved: true });
+      toast('err', e instanceof Error ? e.message : 'Could not suspend.');
+    }
   };
 
   return (
@@ -106,7 +114,7 @@ export function AdminUsersPage() {
                   <th>Name</th>
                   <th>Email</th>
                   <th>Phone</th>
-                  {tab === 'drivers' && <th>Rating</th>}
+                  {tab === 'drivers' && <th>Vehicle</th>}
                   {tab === 'drivers' && <th>Status</th>}
                   {tab === 'drivers' && <th style={{ width: 220, textAlign: 'right' }}>Actions</th>}
                 </tr>
@@ -116,23 +124,26 @@ export function AdminUsersPage() {
                   <tr key={u.id}>
                     <td><strong>{u.name}</strong></td>
                     <td><span className="sr-table__num">{u.email}</span></td>
-                    <td>{u.phone}</td>
+                    <td>{u.phone || <span className="text-ink-4">—</span>}</td>
                     {tab === 'drivers' && (
                       <td>
-                        {u.ratingCount && u.ratingCount > 0 ? (
-                          <div className="flex items-center gap-2"><StarRating value={u.rating ?? 0} size={13} /><span className="sr-small">{u.rating?.toFixed(1)}</span></div>
-                        ) : (<span className="text-ink-4">No ratings</span>)}
+                        {u.vehicleModel ? (
+                          <>
+                            <div className="text-[14px]">{u.vehicleModel}</div>
+                            <div className="sr-micro">{u.licensePlate ?? '—'}</div>
+                          </>
+                        ) : (<span className="text-ink-4">—</span>)}
                       </td>
                     )}
-                    {tab === 'drivers' && <td><DriverStatusChip status={u.driverStatus ?? 'pending'} /></td>}
+                    {tab === 'drivers' && <td><DriverStatusChip approved={u.isApproved ?? false} /></td>}
                     {tab === 'drivers' && (
                       <td style={{ textAlign: 'right' }}>
                         <div className="inline-flex gap-2">
-                          {u.driverStatus !== 'approved' && (
-                            <Button size="sm" variant="ghost" onClick={() => handleApprove(u.id)} iconLeft={<Icon name="check" size={13} />}>Approve</Button>
+                          {!u.isApproved && (
+                            <Button size="sm" variant="ghost" onClick={() => handleApprove(u)} iconLeft={<Icon name="check" size={13} />}>Approve</Button>
                           )}
-                          {u.driverStatus !== 'suspended' && (
-                            <Button size="sm" variant="danger" onClick={() => handleSuspend(u.id)} iconLeft={<Icon name="x" size={13} />}>Suspend</Button>
+                          {u.isApproved && (
+                            <Button size="sm" variant="danger" onClick={() => handleSuspend(u)} iconLeft={<Icon name="x" size={13} />}>Suspend</Button>
                           )}
                         </div>
                       </td>
@@ -149,20 +160,20 @@ export function AdminUsersPage() {
               <Card key={u.id} padding="sm">
                 <div className="flex justify-between items-start mb-1.5">
                   <strong>{u.name}</strong>
-                  {tab === 'drivers' && <DriverStatusChip status={u.driverStatus ?? 'pending'} />}
+                  {tab === 'drivers' && <DriverStatusChip approved={u.isApproved ?? false} />}
                 </div>
                 <div className="sr-table__num mb-1">{u.email}</div>
-                <div className="sr-small">{u.phone}</div>
-                {tab === 'drivers' && u.ratingCount && u.ratingCount > 0 && (
-                  <div className="flex items-center gap-2 mt-2"><StarRating value={u.rating ?? 0} size={13} /><span className="sr-small">{u.rating?.toFixed(1)}</span></div>
+                <div className="sr-small">{u.phone || '—'}</div>
+                {tab === 'drivers' && u.vehicleModel && (
+                  <div className="sr-small mt-2">{u.vehicleModel} · {u.licensePlate ?? '—'}</div>
                 )}
                 {tab === 'drivers' && (
                   <div className="flex gap-2 mt-3">
-                    {u.driverStatus !== 'approved' && (
-                      <Button size="sm" variant="primary" block onClick={() => handleApprove(u.id)}>Approve</Button>
+                    {!u.isApproved && (
+                      <Button size="sm" variant="primary" block onClick={() => handleApprove(u)}>Approve</Button>
                     )}
-                    {u.driverStatus !== 'suspended' && (
-                      <Button size="sm" variant="danger" block onClick={() => handleSuspend(u.id)}>Suspend</Button>
+                    {u.isApproved && (
+                      <Button size="sm" variant="danger" block onClick={() => handleSuspend(u)}>Suspend</Button>
                     )}
                   </div>
                 )}
@@ -177,7 +188,7 @@ export function AdminUsersPage() {
   );
 }
 
-function DriverStatusChip({ status }: { status: 'pending' | 'approved' | 'suspended' }) {
-  const tone = status === 'approved' ? 'completed' : status === 'suspended' ? 'cancelled' : 'pending';
-  return <span className={`sr-chip sr-chip--${tone}`}><span className="sr-chip__dot" />{status}</span>;
+function DriverStatusChip({ approved }: { approved: boolean }) {
+  const tone = approved ? 'completed' : 'pending';
+  return <span className={`sr-chip sr-chip--${tone}`}><span className="sr-chip__dot" />{approved ? 'approved' : 'pending'}</span>;
 }

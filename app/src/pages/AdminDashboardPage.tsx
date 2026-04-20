@@ -6,6 +6,7 @@ import { Icon } from '../components/Icon';
 import { InlineError, SkeletonRow } from '../components/EmptyState';
 import { Card } from '../components/Card';
 import { StatTile } from '../components/StatTile';
+import { formatRwf } from '../lib/format';
 
 export function AdminDashboardPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -35,7 +36,7 @@ export function AdminDashboardPage() {
                 size="lg"
                 href="/admin/trips"
                 label="Revenue, all-time"
-                value={`$${stats.revenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                value={formatRwf(stats.totalRevenue)}
               />
             </div>
             <div style={{ gridColumn: 'span 3' }}>
@@ -58,10 +59,10 @@ export function AdminDashboardPage() {
           </section>
 
           <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
-            <StatTile label="Passengers"       value={stats.passengers.toLocaleString('en-US')}      href="/admin/users" />
-            <StatTile label="Drivers"          value={stats.drivers.toLocaleString('en-US')}         href="/admin/users" />
-            <StatTile label="Approved drivers" value={stats.approvedDrivers.toLocaleString('en-US')} href="/admin/users" />
-            <StatTile label="Trips, all-time"  value={stats.trips.toLocaleString('en-US')}           href="/admin/trips" />
+            <StatTile label="Passengers"       value={stats.totalPassengers.toLocaleString('en-US')}  href="/admin/users" />
+            <StatTile label="Drivers"          value={stats.totalDrivers.toLocaleString('en-US')}     href="/admin/users" />
+            <StatTile label="Approved drivers" value={stats.approvedDrivers.toLocaleString('en-US')}  href="/admin/users" />
+            <StatTile label="Trips, all-time"  value={stats.totalTrips.toLocaleString('en-US')}       href="/admin/trips" />
           </section>
 
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">

@@ -9,6 +9,7 @@ import { Icon } from '../components/Icon';
 import { EmptyState, InlineError, SkeletonRow } from '../components/EmptyState';
 import { Card } from '../components/Card';
 import { PaginationBar, usePagination } from '../components/Pagination';
+import { formatKm, formatRwf } from '../lib/format';
 
 export function PassengerHistoryPage() {
   const { user } = useAuth();
@@ -18,7 +19,7 @@ export function PassengerHistoryPage() {
   const load = () => {
     if (!user) return;
     setError(null);
-    getMyTrips(user.id).then(setTrips).catch((e) => setError(e instanceof Error ? e.message : 'Could not load trips.'));
+    getMyTrips().then(setTrips).catch((e) => setError(e instanceof Error ? e.message : 'Could not load trips.'));
   };
   useEffect(load, [user]);
 
@@ -56,7 +57,7 @@ export function PassengerHistoryPage() {
                   <th>Date</th>
                   <th>Route</th>
                   <th style={{ width: 120 }}>Status</th>
-                  <th style={{ width: 100, textAlign: 'right' }}>Fare</th>
+                  <th style={{ width: 140, textAlign: 'right' }}>Fare</th>
                   <th style={{ width: 160, textAlign: 'right' }}>Action</th>
                 </tr>
               </thead>
@@ -66,11 +67,11 @@ export function PassengerHistoryPage() {
                     <td className="sr-table__num">{new Date(t.createdAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
                     <td>
                       <div className="text-[14px]">{t.pickup.label} <span className="text-ink-4">→</span> {t.dropoff.label}</div>
-                      <div className="sr-small">{t.distanceMi} mi</div>
+                      {t.distanceKm != null && <div className="sr-small">{formatKm(t.distanceKm)}</div>}
                     </td>
                     <td><StatusChip status={t.status} /></td>
                     <td style={{ textAlign: 'right', fontFamily: 'var(--sr-mono)' }}>
-                      {t.fare != null ? `$${t.fare.toFixed(2)}` : <span className="text-ink-4">—</span>}
+                      {t.fareRwf != null ? formatRwf(t.fareRwf) : <span className="text-ink-4">—</span>}
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       {t.status === 'Completed' ? (
@@ -99,7 +100,7 @@ export function PassengerHistoryPage() {
                 </div>
                 <div className="text-[14px] mb-1"><strong>{t.pickup.label}</strong> <span className="text-ink-4">→</span> {t.dropoff.label}</div>
                 <div className="flex justify-between items-center mt-3">
-                  <div className="sr-small">{t.distanceMi} mi · {t.fare != null ? `$${t.fare.toFixed(2)}` : '—'}</div>
+                  <div className="sr-small">{formatRwf(t.fareRwf)}</div>
                   {t.status === 'Completed' && (
                     <Link to={`/passenger/trip/${t.id}/receipt`} className="sr-btn sr-btn--ghost sr-btn--sm">
                       Receipt <Icon name="chevron-right" size={13} />

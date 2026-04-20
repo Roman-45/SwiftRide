@@ -4,12 +4,16 @@ import { Map } from '../components/Map';
 import { PageHead } from '../components/PageHead';
 import { Icon } from '../components/Icon';
 import { useAuth } from '../auth/AuthContext';
-import { ApiError, bookTrip, estimateFare, getActiveTripForPassenger, getSuggestions, searchPlaces } from '../api/client';
-import type { Place, Suggestion, LatLng } from '../types';
+import { ApiError, bookTrip, estimateFare, getMyTrips, getSuggestions } from '../api/client';
+import { searchPlaces } from '../api/nominatim';
+import type { EstimateResult, Place, Suggestion, LatLng } from '../types';
 import { useToast } from '../components/Toast';
 import { InlineError } from '../components/EmptyState';
+import { Button } from '../components/Button';
+import { formatKm, formatRwf } from '../lib/format';
 
-const DEFAULT_CENTER: LatLng = { lat: 37.7749, lng: -122.4194 };
+// Kigali centre — backend only accepts Rwanda coords (-3..-1 lat, 28.8..30.9 lng).
+const KIGALI_CENTER: LatLng = { lat: -1.9441, lng: 30.0619 };
 
 export function PassengerBookingPage() {
   const { user } = useAuth();
@@ -23,15 +27,16 @@ export function PassengerBookingPage() {
   const [results, setResults] = useState<Suggestion[]>([]);
   const [searching, setSearching] = useState(false);
   const [locating, setLocating] = useState(false);
-  const [quote, setQuote] = useState<{ distanceMi: number; fare: number; minutes: number } | null>(null);
+  const [quote, setQuote] = useState<EstimateResult | null>(null);
   const [bookError, setBookError] = useState<string | null>(null);
   const [booking, setBooking] = useState(false);
 
-  // DoR: if an active trip exists, redirect there.
+  // DoR: if an active trip exists, redirect there instead of double-booking.
   useEffect(() => {
     if (!user) return;
-    getActiveTripForPassenger(user.id).then((t) => {
-      if (t) nav(`/passenger/trip/${t.id}`, { replace: true });
+    getMyTrips().then((trips) => {
+      const active = trips.find((t) => ['Pending', 'Accepted', 'InProgress'].includes(t.status));
+      if (active) nav(`/passenger/trip/${active.id}`, { replace: true });
     }).catch(() => { /* ignore */ });
   }, [user, nav]);
 
@@ -45,33 +50,49 @@ export function PassengerBookingPage() {
       searchPlaces(query)
         .then((r) => { if (!cancelled) setResults(r); })
         .finally(() => { if (!cancelled) setSearching(false); });
-    }, 250);
+    }, 350);
     return () => { cancelled = true; clearTimeout(id); };
   }, [query]);
 
   useEffect(() => {
     if (!pickup || !dropoff) { setQuote(null); return; }
     let cancelled = false;
-    estimateFare(pickup.coords, dropoff.coords).then((q) => { if (!cancelled) setQuote(q); }).catch(() => {});
+    estimateFare(pickup.coords, dropoff.coords)
+      .then((q) => { if (!cancelled) setQuote(q); })
+      .catch((err) => {
+        if (!cancelled) setBookError(err instanceof ApiError ? err.message : 'Could not estimate fare.');
+      });
     return () => { cancelled = true; };
   }, [pickup, dropoff]);
 
   const useMyLocation = () => {
     if (!navigator.geolocation) {
       toast('err', 'Geolocation not available on this device.');
-      setPickup({ label: 'Cedar Park Station', sub: 'Estimated pickup', coords: DEFAULT_CENTER });
+      setPickup({ label: 'Kigali city centre', sub: 'Estimated pickup', coords: KIGALI_CENTER });
       return;
     }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setLocating(false);
-        setPickup({ label: 'My current location', sub: `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`, coords: { lat: pos.coords.latitude, lng: pos.coords.longitude } });
+        // If device is outside Rwanda, snap to Kigali — backend rejects non-Rwanda coords.
+        const inRwanda = pos.coords.latitude >= -3 && pos.coords.latitude <= -1
+                      && pos.coords.longitude >= 28.8 && pos.coords.longitude <= 30.9;
+        if (!inRwanda) {
+          setPickup({ label: 'Kigali city centre', sub: 'Estimated pickup (device outside Rwanda)', coords: KIGALI_CENTER });
+          toast('info', 'Device outside Rwanda — snapped pickup to Kigali.');
+          return;
+        }
+        setPickup({
+          label: 'My current location',
+          sub: `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`,
+          coords: { lat: pos.coords.latitude, lng: pos.coords.longitude },
+        });
         toast('info', 'Pickup pinned to your location.');
       },
       () => {
         setLocating(false);
-        setPickup({ label: 'Cedar Park Station', sub: 'Estimated pickup', coords: DEFAULT_CENTER });
+        setPickup({ label: 'Kigali city centre', sub: 'Estimated pickup', coords: KIGALI_CENTER });
         toast('info', 'Using an estimated pickup — permission denied.');
       },
       { timeout: 6000 },
@@ -82,7 +103,7 @@ export function PassengerBookingPage() {
     if (!user || !pickup || !dropoff || !quote) return;
     setBookError(null); setBooking(true);
     try {
-      const trip = await bookTrip({ passengerId: user.id, pickup, dropoff, distanceMi: quote.distanceMi, fare: quote.fare });
+      const trip = await bookTrip({ pickup, dropoff });
       toast('ok', 'Booked. Looking for a nearby driver.');
       nav(`/passenger/trip/${trip.id}`);
     } catch (err) {
@@ -106,7 +127,7 @@ export function PassengerBookingPage() {
         <div>
           <Map pickup={pickup?.coords} dropoff={dropoff?.coords} height={520} />
           <div className="mt-3 text-[12px] text-ink-3 font-mono">
-            Tiles © OpenStreetMap contributors · Leaflet
+            Tiles © OpenStreetMap contributors · Leaflet · Place search via Nominatim
           </div>
         </div>
 
@@ -119,13 +140,12 @@ export function PassengerBookingPage() {
                   <div className="text-[15px] font-medium">{pickup.label}</div>
                   {pickup.sub && <div className="sr-small mt-0.5">{pickup.sub}</div>}
                 </div>
-                <button className="sr-btn sr-btn--ghost sr-btn--sm" onClick={() => setPickup(null)}>Change</button>
+                <Button variant="ghost" size="sm" onClick={() => setPickup(null)}>Change</Button>
               </div>
             ) : (
-              <button className="sr-btn sr-btn--secondary sr-btn--block" onClick={useMyLocation} disabled={locating}>
-                <Icon name="locate" size={16} />
+              <Button variant="secondary" block onClick={useMyLocation} disabled={locating} iconLeft={<Icon name="locate" size={16} />}>
                 {locating ? 'Locating…' : 'Use my current location'}
-              </button>
+              </Button>
             )}
           </div>
 
@@ -137,7 +157,7 @@ export function PassengerBookingPage() {
                   <div className="text-[15px] font-medium">{dropoff.label}</div>
                   {dropoff.sub && <div className="sr-small mt-0.5">{dropoff.sub}</div>}
                 </div>
-                <button className="sr-btn sr-btn--ghost sr-btn--sm" onClick={() => { setDropoff(null); setQuery(''); }}>Change</button>
+                <Button variant="ghost" size="sm" onClick={() => { setDropoff(null); setQuery(''); }}>Change</Button>
               </div>
             ) : (
               <>
@@ -146,7 +166,7 @@ export function PassengerBookingPage() {
                   <input
                     className="sr-input"
                     style={{ paddingLeft: 38 }}
-                    placeholder="Search a dropoff (3+ characters)"
+                    placeholder="Search a dropoff in Rwanda (3+ chars)"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                   />
@@ -204,24 +224,22 @@ export function PassengerBookingPage() {
             )}
             {quote && (
               <>
-                <div className="flex items-baseline gap-2">
-                  <span className="sr-num text-[14px] text-ink-3">$</span>
-                  <span className="sr-num text-[40px] leading-none tracking-tight">{quote.fare.toFixed(2)}</span>
-                </div>
-                <div className="sr-small mt-2">{quote.distanceMi} mi · ~{quote.minutes} min</div>
+                <div className="sr-num text-[40px] leading-none tracking-tight">{formatRwf(quote.fareRwf)}</div>
+                <div className="sr-small mt-2">{formatKm(quote.distanceKm)} · ~{quote.minutes} min</div>
               </>
             )}
           </div>
 
           {bookError && <InlineError message={bookError} onRetry={() => setBookError(null)} />}
 
-          <button
-            className="sr-btn sr-btn--primary sr-btn--lg sr-btn--block"
+          <Button
+            variant="primary" size="lg" block
             disabled={!quote || booking}
             onClick={handleBook}
+            iconRight={!booking ? <Icon name="arrow-right" size={14} /> : undefined}
           >
-            {booking ? 'Booking…' : <>Book ride <Icon name="arrow-right" size={14} /></>}
-          </button>
+            {booking ? 'Booking…' : 'Book ride'}
+          </Button>
         </aside>
       </div>
     </div>

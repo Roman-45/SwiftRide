@@ -7,6 +7,7 @@ import { EmptyState, InlineError, SkeletonRow } from '../components/EmptyState';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { PaginationBar, usePagination } from '../components/Pagination';
+import { formatRwf } from '../lib/format';
 
 const FILTERS: Array<TripStatus | 'All'> = ['All', 'Pending', 'Accepted', 'InProgress', 'Completed', 'Cancelled'];
 
@@ -80,8 +81,7 @@ export function AdminTripsPage() {
                   <th>№</th>
                   <th>Route</th>
                   <th style={{ width: 120 }}>Status</th>
-                  <th style={{ width: 80, textAlign: 'right' }}>Miles</th>
-                  <th style={{ width: 100, textAlign: 'right' }}>Fare</th>
+                  <th style={{ width: 140, textAlign: 'right' }}>Fare</th>
                   <th style={{ width: 140, textAlign: 'right' }}>Created</th>
                 </tr>
               </thead>
@@ -91,12 +91,11 @@ export function AdminTripsPage() {
                     <td className="sr-table__num">{t.id}</td>
                     <td>
                       <div className="text-[14px]">{t.pickup.label} <span className="text-ink-4">→</span> {t.dropoff.label}</div>
-                      <div className="sr-small">{t.passengerId.replace('u_pass_', 'P#')} · {(t.driverId ?? '—').replace('u_drv_', 'D#')}</div>
+                      <div className="sr-small">P#{t.passengerId} · {t.driverId ? `D#${t.driverId}` : '—'}</div>
                     </td>
                     <td><StatusChip status={t.status} /></td>
-                    <td style={{ textAlign: 'right', fontFamily: 'var(--sr-mono)' }}>{t.distanceMi}</td>
                     <td style={{ textAlign: 'right', fontFamily: 'var(--sr-mono)' }}>
-                      {t.fare != null ? `$${t.fare.toFixed(2)}` : <span className="text-ink-4">—</span>}
+                      {t.fareRwf != null ? formatRwf(t.fareRwf) : <span className="text-ink-4">—</span>}
                     </td>
                     <td style={{ textAlign: 'right' }} className="sr-table__num">
                       {new Date(t.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
@@ -117,7 +116,7 @@ export function AdminTripsPage() {
                 </div>
                 <div className="text-[14px] mb-1">{t.pickup.label} → {t.dropoff.label}</div>
                 <div className="sr-small flex justify-between">
-                  <span>{t.distanceMi} mi{t.fare != null ? ` · $${t.fare.toFixed(2)}` : ''}</span>
+                  <span>{t.fareRwf != null ? formatRwf(t.fareRwf) : '—'}</span>
                   <span>{new Date(t.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</span>
                 </div>
               </Card>

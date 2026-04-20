@@ -1,312 +1,471 @@
+// Real backend API client. All requests go through http.ts which handles the
+// { success, data, message } envelope + JWT header. This file is the ONLY place
+// that knows about backend field names (PascalCase-looking camelCase from C#,
+// flat coords, etc.); the rest of the app uses the types in ../types.ts.
+
 import type {
-  AdminStats, AuthResponse, DriverCard, Earnings, Role, Suggestion, Trip, TripStatus, User, LatLng,
+  AdminStats, AuthResponse, DriverCard, DriverLiveLocation, Earnings,
+  EstimateResult, LatLng, Place, Receipt, Role, Suggestion, Trip,
+  TripStatus, User,
 } from '../types';
-import { seedSuggestions, seedTrips, seedUsers, randomToken } from './seed';
+import { http, ApiError } from './http';
 
-// Mock API latency so loading states are real.
-const LAT = () => 200 + Math.random() * 250;
-const wait = <T,>(v: T): Promise<T> => new Promise((r) => setTimeout(() => r(v), LAT()));
-const fail = (msg: string, status = 400): Promise<never> =>
-  new Promise((_, rej) => setTimeout(() => rej(new ApiError(msg, status)), LAT()));
+export { ApiError };
 
-export class ApiError extends Error {
-  status: number;
-  constructor(message: string, status = 400) { super(message); this.status = status; }
+// --- Backend DTO shapes (raw — not exported) ---
+
+interface BackendUser {
+  id: number;
+  name: string;
+  email: string;
+  phoneNumber: string | null;
+  role: 'Passenger' | 'Driver' | 'Admin';
+  createdAt: string;
 }
 
-// In-memory stores (persisted to sessionStorage so refresh keeps things consistent).
-type Store = { users: User[]; trips: Trip[] };
-const STORE_KEY = 'sr-store-v1';
-function loadStore(): Store {
-  try {
-    const raw = sessionStorage.getItem(STORE_KEY);
-    if (raw) return JSON.parse(raw) as Store;
-  } catch { /* noop */ }
-  return { users: [...seedUsers], trips: [...seedTrips] };
+interface BackendLoginResponse {
+  token: string;
+  user: BackendUser;
 }
-function saveStore(s: Store) { try { sessionStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch { /* noop */ } }
-const store = loadStore();
 
-function findUserByEmail(email: string): User | undefined {
-  return store.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+interface BackendTrip {
+  id: number;
+  passengerId: number;
+  driverId: number | null;
+  pickupAddress: string | null;
+  dropoffAddress: string | null;
+  pickupLat: number;
+  pickupLng: number;
+  dropoffLat: number;
+  dropoffLng: number;
+  estimatedFare: number;
+  status: TripStatus;
+  createdAt: string;
+  completedAt: string | null;
+  distanceKm: number | null;
+}
+
+interface BackendReceipt {
+  tripId: number;
+  passengerId: number;
+  driverId: number | null;
+  pickupAddress: string | null;
+  dropoffAddress: string | null;
+  pickupLat: number;
+  pickupLng: number;
+  dropoffLat: number;
+  dropoffLng: number;
+  estimatedFare: number;
+  status: TripStatus;
+  createdAt: string;
+  completedAt: string | null;
+  passengerName: string | null;
+  driverName: string | null;
+  driverPhone: string | null;
+  licensePlate: string | null;
+  vehicleModel: string | null;
+  paymentId: number | null;
+  paymentAmount: number | null;
+  paymentStatus: string | null;
+  paidAt: string | null;
+}
+
+interface BackendDriverCard {
+  driverUserId: number;
+  name: string | null;
+  phoneNumber: string | null;
+  licensePlate: string | null;
+  vehicleModel: string | null;
+  averageRating: number;
+  reviewCount: number;
+}
+
+interface BackendDriverLocation {
+  lat: number;
+  lng: number;
+  distanceKm: number | null;
+  etaMinutes: number | null;
+  etaTarget: 'to_pickup' | 'to_dropoff' | null;
+}
+
+interface BackendEarnings {
+  today: number;
+  thisWeek: number;
+  thisMonth: number;
+  total: number;
+  completedTrips: number;
+  dailyBreakdown: { day: string; amount: number; tripCount: number }[];
+}
+
+interface BackendAdminStats {
+  totalPassengers: number;
+  totalDrivers: number;
+  approvedDrivers: number;
+  totalTrips: number;
+  completedTrips: number;
+  pendingTrips: number;
+  totalRevenue: number;
+}
+
+interface BackendAdminUser {
+  id: number;
+  name: string;
+  email: string;
+  phoneNumber: string | null;
+  role: 'Passenger' | 'Driver' | 'Admin';
+  createdAt: string;
+}
+
+interface BackendAdminDriver {
+  userId: number;
+  name: string;
+  email: string;
+  phoneNumber: string | null;
+  licensePlate: string | null;
+  vehicleModel: string | null;
+  isAvailable: boolean;
+  isApproved: boolean;
+}
+
+interface BackendAdminTrip {
+  id: number;
+  passengerId: number;
+  driverId: number | null;
+  pickupAddress: string | null;
+  dropoffAddress: string | null;
+  estimatedFare: number;
+  status: TripStatus;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+interface BackendSuggestions {
+  frequentDestinations: Array<{ address: string | null; lat: number; lng: number; visitCount: number; lastVisitedAt: string }>;
+  frequentRoutes: Array<{ pickupAddress: string | null; dropoffAddress: string | null; pickupLat: number; pickupLng: number; dropoffLat: number; dropoffLng: number; tripCount: number; lastTakenAt: string; averageFare: number }>;
+  contextual: { address: string | null; lat: number; lng: number } | null;
+  context: string;
+}
+
+// --- Adapters ---
+
+function backendRoleToRole(r: BackendUser['role']): Role {
+  if (r === 'Passenger') return 'passenger';
+  if (r === 'Driver') return 'driver';
+  return 'admin';
+}
+
+function mapUser(u: BackendUser): User {
+  return {
+    id: String(u.id),
+    name: u.name,
+    email: u.email,
+    phone: u.phoneNumber ?? '',
+    role: backendRoleToRole(u.role),
+    createdAt: u.createdAt,
+  };
+}
+
+function placeFrom(address: string | null, lat: number, lng: number): Place {
+  return {
+    label: address ?? 'Unnamed location',
+    coords: { lat, lng },
+  };
+}
+
+function mapTrip(t: BackendTrip): Trip {
+  return {
+    id: String(t.id),
+    passengerId: String(t.passengerId),
+    driverId: t.driverId == null ? null : String(t.driverId),
+    pickup: placeFrom(t.pickupAddress, t.pickupLat, t.pickupLng),
+    dropoff: placeFrom(t.dropoffAddress, t.dropoffLat, t.dropoffLng),
+    distanceKm: t.distanceKm ?? null,
+    fareRwf: t.estimatedFare ?? null,
+    status: t.status,
+    createdAt: t.createdAt,
+    completedAt: t.completedAt,
+  };
+}
+
+function mapReceipt(r: BackendReceipt): Receipt {
+  return {
+    tripId: String(r.tripId),
+    status: r.status,
+    createdAt: r.createdAt,
+    completedAt: r.completedAt,
+    pickup: placeFrom(r.pickupAddress, r.pickupLat, r.pickupLng),
+    dropoff: placeFrom(r.dropoffAddress, r.dropoffLat, r.dropoffLng),
+    // Backend computes real distance on complete; we expose the estimate as
+    // the single fare figure and let the UI show a dash if it's missing.
+    distanceKm: null,
+    fareRwf: r.paymentAmount ?? r.estimatedFare ?? null,
+    driverName: r.driverName,
+    driverPhone: r.driverPhone,
+    licensePlate: r.licensePlate,
+    vehicleModel: r.vehicleModel,
+    paymentStatus: r.paymentStatus,
+    paidAt: r.paidAt,
+  };
+}
+
+function mapDriverCard(c: BackendDriverCard): DriverCard {
+  return {
+    driverId: String(c.driverUserId),
+    name: c.name ?? 'Driver',
+    rating: Number(c.averageRating ?? 0),
+    reviewCount: c.reviewCount ?? 0,
+    licensePlate: c.licensePlate ?? '—',
+    vehicleModel: c.vehicleModel ?? '—',
+    phone: c.phoneNumber ?? '',
+  };
+}
+
+function mapLocation(l: BackendDriverLocation): DriverLiveLocation {
+  return {
+    coords: { lat: l.lat, lng: l.lng },
+    distanceKm: l.distanceKm,
+    etaMinutes: l.etaMinutes,
+    etaTarget: l.etaTarget,
+  };
+}
+
+function mapEarnings(e: BackendEarnings): Earnings {
+  return {
+    today: e.today,
+    week: e.thisWeek,
+    month: e.thisMonth,
+    total: e.total,
+    completedTrips: e.completedTrips,
+    daily: (e.dailyBreakdown ?? []).map((d) => ({
+      day: d.day,
+      amount: d.amount,
+      tripCount: d.tripCount,
+    })),
+  };
+}
+
+function mapAdminStats(s: BackendAdminStats): AdminStats {
+  return {
+    totalPassengers: s.totalPassengers,
+    totalDrivers: s.totalDrivers,
+    approvedDrivers: s.approvedDrivers,
+    totalTrips: s.totalTrips,
+    completedTrips: s.completedTrips,
+    pendingTrips: s.pendingTrips,
+    totalRevenue: s.totalRevenue,
+  };
 }
 
 // --- Auth ---
+
 export async function login(email: string, password: string): Promise<AuthResponse> {
-  const user = findUserByEmail(email);
-  if (!user) return fail('No account with that email.', 401);
-  // Accept any password ≥ 4 chars in the prototype.
-  if (!password || password.length < 4) return fail('Incorrect password.', 401);
-  return wait({ token: randomToken('jwt'), user });
+  const res = await http.post<BackendLoginResponse>('/api/auth/login', { email, password });
+  return { token: res.token, user: mapUser(res.user) };
 }
 
-export async function register(params: { name: string; email: string; phone: string; password: string; role: Exclude<Role, 'admin'> }): Promise<AuthResponse> {
-  if (findUserByEmail(params.email)) return fail('That email is already registered.', 409);
-  if (params.password.length < 6) return fail('Password must be at least 6 characters.', 400);
-  const user: User = {
-    id: `u_${params.role}_${Math.random().toString(36).slice(2, 7)}`,
+export async function register(params: {
+  name: string; email: string; phone: string; password: string;
+  role: Exclude<Role, 'admin'>; licensePlate?: string; vehicleModel?: string;
+}): Promise<AuthResponse> {
+  const res = await http.post<BackendLoginResponse>('/api/auth/register', {
     name: params.name,
     email: params.email,
-    phone: params.phone,
-    role: params.role,
-    createdAt: new Date().toISOString(),
-    ...(params.role === 'driver' ? { driverStatus: 'pending' as const, rating: 0, ratingCount: 0, plate: 'SR · pending' } : {}),
-  };
-  store.users.push(user);
-  saveStore(store);
-  return wait({ token: randomToken('jwt'), user });
+    password: params.password,
+    phoneNumber: params.phone,
+    role: params.role === 'passenger' ? 'Passenger' : 'Driver',
+    licensePlate: params.licensePlate,
+    vehicleModel: params.vehicleModel,
+  });
+  return { token: res.token, user: mapUser(res.user) };
 }
 
-// --- Suggestions ---
-export async function getSuggestions(): Promise<Suggestion[]> { return wait(seedSuggestions); }
-
-export async function searchPlaces(q: string): Promise<Suggestion[]> {
-  if (q.trim().length < 3) return wait([]);
-  const all: Suggestion[] = [
-    ...seedSuggestions,
-    { id: 'p_mission', label: 'Mission Dolores Park', icon: 'map-pin', place: { label: 'Mission Dolores Park', sub: 'Mission',        coords: { lat: 37.7596, lng: -122.4269 } } },
-    { id: 'p_harbor',  label: 'Harbor Green Terminal', icon: 'map-pin', place: { label: 'Harbor Green Terminal', sub: 'Pier 9',          coords: { lat: 37.8020, lng: -122.4050 } } },
-    { id: 'p_midtown', label: 'Midtown Commons',       icon: 'map-pin', place: { label: 'Midtown Commons',      sub: 'Midtown',         coords: { lat: 37.7810, lng: -122.4150 } } },
-    { id: 'p_ferry',   label: 'Ferry Building',        icon: 'map-pin', place: { label: 'Ferry Building',       sub: 'Embarcadero',     coords: { lat: 37.7955, lng: -122.3937 } } },
-    { id: 'p_twin',    label: 'Twin Peaks Overlook',   icon: 'map-pin', place: { label: 'Twin Peaks Overlook',  sub: 'Twin Peaks',      coords: { lat: 37.7544, lng: -122.4477 } } },
-  ];
-  const t = q.toLowerCase();
-  return wait(all.filter((s) => s.label.toLowerCase().includes(t) || (s.place.sub?.toLowerCase().includes(t) ?? false)));
+// Used on app boot to re-verify a stored token.
+export async function getMe(): Promise<User> {
+  const u = await http.get<BackendUser>('/api/auth/me');
+  return mapUser(u);
 }
 
 // --- Passenger trips ---
-export async function getMyTrips(userId: string): Promise<Trip[]> {
-  return wait(store.trips.filter((t) => t.passengerId === userId).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)));
+
+export async function estimateFare(pickup: LatLng, dropoff: LatLng): Promise<EstimateResult> {
+  const res = await http.post<{ distanceKm: number; estimatedFare: number }>(
+    '/api/trips/estimate',
+    { pickupLat: pickup.lat, pickupLng: pickup.lng, dropoffLat: dropoff.lat, dropoffLng: dropoff.lng },
+  );
+  // Backend doesn't return a time estimate; derive a soft guess at 30 km/h.
+  const minutes = Math.max(3, Math.round((res.distanceKm / 30) * 60));
+  return { distanceKm: res.distanceKm, fareRwf: res.estimatedFare, minutes };
+}
+
+export async function bookTrip(params: {
+  pickup: Place; dropoff: Place;
+}): Promise<Trip> {
+  const trip = await http.post<BackendTrip>('/api/trips/book', {
+    pickupAddress: params.pickup.label,
+    dropoffAddress: params.dropoff.label,
+    pickupLat: params.pickup.coords.lat,
+    pickupLng: params.pickup.coords.lng,
+    dropoffLat: params.dropoff.coords.lat,
+    dropoffLng: params.dropoff.coords.lng,
+  });
+  return mapTrip(trip);
+}
+
+export async function getMyTrips(): Promise<Trip[]> {
+  const list = await http.get<BackendTrip[]>('/api/trips');
+  return list.map(mapTrip);
 }
 
 export async function getTrip(id: string): Promise<Trip> {
-  const t = store.trips.find((x) => x.id === id);
-  if (!t) return fail('Trip not found.', 404);
-  return wait(t);
+  const trip = await http.get<BackendTrip>(`/api/trips/${id}`);
+  return mapTrip(trip);
 }
 
-export async function estimateFare(pickup: LatLng, dropoff: LatLng): Promise<{ distanceMi: number; fare: number; minutes: number }> {
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const R = 3958.8;
-  const dLat = toRad(dropoff.lat - pickup.lat);
-  const dLng = toRad(dropoff.lng - pickup.lng);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(pickup.lat)) * Math.cos(toRad(dropoff.lat)) * Math.sin(dLng / 2) ** 2;
-  const distanceMi = Math.max(0.4, Number((2 * R * Math.asin(Math.sqrt(a))).toFixed(2)));
-  const fare = Number((2.75 + distanceMi * 2.85).toFixed(2));
-  const minutes = Math.max(3, Math.round(distanceMi * 3.1));
-  return wait({ distanceMi, fare, minutes });
+export async function cancelTrip(id: string): Promise<void> {
+  await http.del<unknown>(`/api/trips/${id}/cancel`);
 }
 
-export async function bookTrip(params: { passengerId: string; pickup: Trip['pickup']; dropoff: Trip['dropoff']; distanceMi: number; fare: number }): Promise<Trip> {
-  const active = store.trips.find((t) => t.passengerId === params.passengerId && ['Pending', 'Accepted', 'InProgress'].includes(t.status));
-  if (active) return fail('You already have an active trip.', 409);
-  const trip: Trip = {
-    id: `t_${Math.random().toString(36).slice(2, 7)}`,
-    passengerId: params.passengerId,
-    driverId: null,
-    pickup: params.pickup,
-    dropoff: params.dropoff,
-    distanceMi: params.distanceMi,
-    fare: params.fare,
-    status: 'Pending',
-    createdAt: new Date().toISOString(),
-  };
-  store.trips.unshift(trip);
-  saveStore(store);
-  // Auto-accept after a short delay to drive the ActiveTrip UX.
-  setTimeout(() => { transitionTrip(trip.id, 'Accepted'); }, 2500);
-  return wait(trip);
-}
-
-export async function cancelTrip(id: string): Promise<Trip> {
-  const t = store.trips.find((x) => x.id === id);
-  if (!t) return fail('Trip not found.', 404);
-  if (!['Pending', 'Accepted'].includes(t.status)) return fail('Trip can no longer be cancelled.', 400);
-  t.status = 'Cancelled';
-  saveStore(store);
-  return wait(t);
-}
-
-export async function reviewTrip(id: string, rating: number, review?: string): Promise<Trip> {
-  const t = store.trips.find((x) => x.id === id);
-  if (!t) return fail('Trip not found.', 404);
-  t.rating = rating;
-  t.review = review;
-  saveStore(store);
-  return wait(t);
+export async function reviewTrip(id: string, rating: number, comment?: string): Promise<void> {
+  await http.post<unknown>(`/api/trips/${id}/review`, { rating, comment });
 }
 
 export async function getDriverCard(tripId: string): Promise<DriverCard> {
-  const t = store.trips.find((x) => x.id === tripId);
-  if (!t || !t.driverId) return fail('Driver not assigned yet.', 404);
-  const drv = store.users.find((u) => u.id === t.driverId);
-  if (!drv) return fail('Driver not found.', 404);
-  return wait({
-    driverId: drv.id,
-    name: drv.name,
-    rating: drv.rating ?? 5,
-    ratingCount: drv.ratingCount ?? 0,
-    plate: drv.plate ?? 'SR · —',
-    phone: drv.phone,
-    etaMinutes: 4,
-  });
+  const card = await http.get<BackendDriverCard>(`/api/trips/${tripId}/driver-card`);
+  return mapDriverCard(card);
 }
 
-export async function getDriverLocation(tripId: string): Promise<LatLng> {
-  const t = store.trips.find((x) => x.id === tripId);
-  if (!t) return fail('Trip not found.', 404);
-  if (!t.driverLocation) {
-    t.driverLocation = { lat: t.pickup.coords.lat - 0.008, lng: t.pickup.coords.lng - 0.006 };
-  } else {
-    t.driverLocation = {
-      lat: t.driverLocation.lat + (t.pickup.coords.lat - t.driverLocation.lat) * 0.25,
-      lng: t.driverLocation.lng + (t.pickup.coords.lng - t.driverLocation.lng) * 0.25,
-    };
+export async function getDriverLiveLocation(tripId: string): Promise<DriverLiveLocation> {
+  const loc = await http.get<BackendDriverLocation>(`/api/trips/${tripId}/driver-location`);
+  return mapLocation(loc);
+}
+
+export async function getTripReceipt(id: string): Promise<Receipt> {
+  const r = await http.get<BackendReceipt>(`/api/trips/${id}/receipt`);
+  return mapReceipt(r);
+}
+
+export async function getSuggestions(): Promise<Suggestion[]> {
+  try {
+    const s = await http.get<BackendSuggestions>('/api/suggestions');
+    const out: Suggestion[] = [];
+    s.frequentDestinations.slice(0, 3).forEach((d, i) => {
+      out.push({
+        id: `freq-dest-${i}`,
+        label: d.address ?? 'Saved place',
+        icon: 'briefcase',
+        place: placeFrom(d.address, d.lat, d.lng),
+      });
+    });
+    if (s.contextual) {
+      out.unshift({
+        id: 'ctx',
+        label: s.contextual.address ?? 'Usual spot',
+        icon: s.context.includes('morning') ? 'coffee' : 'briefcase',
+        place: placeFrom(s.contextual.address, s.contextual.lat, s.contextual.lng),
+      });
+    }
+    return out;
+  } catch {
+    // Suggestions are best-effort; a 500 shouldn't break booking.
+    return [];
   }
-  saveStore(store);
-  return wait(t.driverLocation);
-}
-
-export async function getTripReceipt(id: string, passengerId: string): Promise<Trip> {
-  const t = store.trips.find((x) => x.id === id);
-  if (!t) return fail('Receipt not found.', 404);
-  if (t.passengerId !== passengerId) return fail('You are not authorised to view this receipt.', 403);
-  return wait(t);
-}
-
-export async function getUser(id: string): Promise<User> {
-  const u = store.users.find((x) => x.id === id);
-  if (!u) return fail('User not found.', 404);
-  return wait(u);
 }
 
 // --- Driver ---
-export async function getPendingTrips(driverId: string): Promise<Trip[]> {
-  const driver = store.users.find((u) => u.id === driverId);
-  if (!driver) return fail('Driver not found.', 404);
-  if (driver.driverStatus !== 'approved') return wait([]);
-  return wait(store.trips.filter((t) => t.status === 'Pending' && !t.driverId));
+
+export async function getPendingTrips(): Promise<Trip[]> {
+  const list = await http.get<BackendTrip[]>('/api/driver/pending-trips');
+  return list.map(mapTrip);
 }
 
-export async function acceptTrip(driverId: string, tripId: string): Promise<Trip> {
-  const driver = store.users.find((u) => u.id === driverId);
-  if (!driver || driver.driverStatus !== 'approved') return fail('You are not approved to drive yet.', 403);
-  const trip = store.trips.find((t) => t.id === tripId);
-  if (!trip) return fail('Trip not found.', 404);
-  if (trip.status !== 'Pending' || trip.driverId) return fail('Trip already accepted.', 409);
-  trip.driverId = driverId;
-  trip.status = 'Accepted';
-  trip.acceptedAt = new Date().toISOString();
-  saveStore(store);
-  return wait(trip);
+export async function acceptTrip(tripId: string): Promise<void> {
+  await http.post<unknown>(`/api/driver/trips/${tripId}/accept`);
 }
 
-export async function startTrip(driverId: string, tripId: string): Promise<Trip> {
-  const trip = store.trips.find((t) => t.id === tripId);
-  if (!trip || trip.driverId !== driverId) return fail('Not your trip.', 403);
-  if (trip.status !== 'Accepted') return fail('Trip is not ready to start.', 400);
-  trip.status = 'InProgress';
-  trip.startedAt = new Date().toISOString();
-  saveStore(store);
-  return wait(trip);
+export async function startTrip(tripId: string): Promise<void> {
+  await http.post<unknown>(`/api/driver/trips/${tripId}/start`);
 }
 
-export async function completeTrip(driverId: string, tripId: string): Promise<Trip> {
-  const trip = store.trips.find((t) => t.id === tripId);
-  if (!trip || trip.driverId !== driverId) return fail('Not your trip.', 403);
-  if (trip.status !== 'InProgress') return fail('Trip is not in progress.', 400);
-  trip.status = 'Completed';
-  trip.completedAt = new Date().toISOString();
-  if (trip.fare == null) trip.fare = Number((2.75 + trip.distanceMi * 2.85).toFixed(2));
-  saveStore(store);
-  return wait(trip);
+export async function completeTrip(tripId: string): Promise<void> {
+  await http.post<unknown>(`/api/driver/trips/${tripId}/complete`);
 }
 
-export async function getActiveTripForDriver(driverId: string): Promise<Trip | null> {
-  const trip = store.trips.find((t) => t.driverId === driverId && ['Accepted', 'InProgress'].includes(t.status));
-  return wait(trip ?? null);
+export async function getDriverTrip(tripId: string): Promise<Trip> {
+  const trip = await http.get<BackendTrip>(`/api/driver/trips/${tripId}`);
+  return mapTrip(trip);
 }
 
-export async function getActiveTripForPassenger(passengerId: string): Promise<Trip | null> {
-  const trip = store.trips.find((t) => t.passengerId === passengerId && ['Pending', 'Accepted', 'InProgress'].includes(t.status));
-  return wait(trip ?? null);
+export async function pushDriverLocation(coords: LatLng): Promise<void> {
+  await http.put<unknown>('/api/driver/location', { lat: coords.lat, lng: coords.lng });
 }
 
-export async function getEarnings(driverId: string): Promise<Earnings> {
-  const driver = store.users.find((u) => u.id === driverId);
-  if (!driver) return fail('Driver not found.', 404);
-  const mine = store.trips.filter((t) => t.driverId === driverId && t.status === 'Completed');
-  const total = mine.reduce((sum, t) => sum + (t.fare ?? 0), 0);
-  return wait({
-    today: 84.20,
-    seven: 612.40,
-    thirty: 2418.90,
-    allTime: Math.max(total, 18_402.55),
-    tripsToday: 6,
-    onlineToday: '4h 12m',
-    chart: [
-      { day: 'Mon', value: 112.40 },
-      { day: 'Tue', value: 88.10 },
-      { day: 'Wed', value: 141.80 },
-      { day: 'Thu', value: 94.60 },
-      { day: 'Fri', value: 156.20 },
-      { day: 'Sat', value: 19.30 },
-      { day: 'Sun', value: 84.20, today: true },
-    ],
-  });
+export async function setDriverAvailability(isAvailable: boolean): Promise<void> {
+  await http.put<unknown>('/api/driver/availability', { isAvailable });
+}
+
+export async function getEarnings(): Promise<Earnings> {
+  const e = await http.get<BackendEarnings>('/api/driver/earnings');
+  return mapEarnings(e);
 }
 
 // --- Admin ---
+
 export async function getAdminStats(): Promise<AdminStats> {
-  const passengers = store.users.filter((u) => u.role === 'passenger').length;
-  const drivers = store.users.filter((u) => u.role === 'driver').length;
-  const approvedDrivers = store.users.filter((u) => u.role === 'driver' && u.driverStatus === 'approved').length;
-  const trips = store.trips.length;
-  const completedTrips = store.trips.filter((t) => t.status === 'Completed').length;
-  const pendingTrips = store.trips.filter((t) => t.status === 'Pending').length;
-  const revenue = store.trips.filter((t) => t.status === 'Completed').reduce((s, t) => s + (t.fare ?? 0), 0);
-  return wait({ passengers, drivers, approvedDrivers, trips, completedTrips, pendingTrips, revenue });
+  const s = await http.get<BackendAdminStats>('/api/admin/stats');
+  return mapAdminStats(s);
 }
 
-export async function getAdminUsers(role?: Role): Promise<User[]> {
-  return wait(role ? store.users.filter((u) => u.role === role) : store.users);
+export async function getAdminPassengers(): Promise<User[]> {
+  const list = await http.get<BackendAdminUser[]>('/api/admin/users');
+  return list
+    .filter((u) => u.role === 'Passenger')
+    .map((u) => ({
+      id: String(u.id),
+      name: u.name,
+      email: u.email,
+      phone: u.phoneNumber ?? '',
+      role: 'passenger' as const,
+      createdAt: u.createdAt,
+    }));
 }
 
-export async function approveDriver(driverId: string): Promise<User> {
-  const u = store.users.find((x) => x.id === driverId);
-  if (!u || u.role !== 'driver') return fail('Driver not found.', 404);
-  u.driverStatus = 'approved';
-  saveStore(store);
-  return wait(u);
+export async function getAdminDrivers(): Promise<User[]> {
+  const list = await http.get<BackendAdminDriver[]>('/api/admin/drivers');
+  return list.map((d) => ({
+    id: String(d.userId),
+    name: d.name,
+    email: d.email,
+    phone: d.phoneNumber ?? '',
+    role: 'driver' as const,
+    createdAt: '',
+    isApproved: d.isApproved,
+    isAvailable: d.isAvailable,
+    licensePlate: d.licensePlate ?? undefined,
+    vehicleModel: d.vehicleModel ?? undefined,
+  }));
 }
 
-export async function suspendDriver(driverId: string): Promise<User> {
-  const u = store.users.find((x) => x.id === driverId);
-  if (!u || u.role !== 'driver') return fail('Driver not found.', 404);
-  u.driverStatus = 'suspended';
-  saveStore(store);
-  return wait(u);
+export async function approveDriver(driverId: string): Promise<void> {
+  await http.put<unknown>(`/api/admin/drivers/${driverId}/approve`);
 }
 
-export async function getAdminTrips(filter?: TripStatus | 'All'): Promise<Trip[]> {
-  const t = (!filter || filter === 'All') ? store.trips : store.trips.filter((x) => x.status === filter);
-  return wait([...t].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)));
+export async function suspendDriver(driverId: string): Promise<void> {
+  await http.put<unknown>(`/api/admin/drivers/${driverId}/suspend`);
 }
 
-// Internal helper used by bookTrip timer.
-function transitionTrip(tripId: string, next: TripStatus) {
-  const trip = store.trips.find((t) => t.id === tripId);
-  if (!trip) return;
-  if (trip.status === 'Cancelled' || trip.status === 'Completed') return;
-  if (next === 'Accepted' && trip.status === 'Pending') {
-    trip.driverId = 'u_drv_1';
-    trip.status = 'Accepted';
-    trip.acceptedAt = new Date().toISOString();
-    saveStore(store);
-  }
-}
-
-export function resetStore() {
-  sessionStorage.removeItem(STORE_KEY);
-  location.reload();
+export async function getAdminTrips(status?: TripStatus | 'All'): Promise<Trip[]> {
+  const q = !status || status === 'All' ? '' : `?status=${encodeURIComponent(status)}`;
+  const list = await http.get<BackendAdminTrip[]>(`/api/admin/trips${q}`);
+  return list.map((t) => ({
+    id: String(t.id),
+    passengerId: String(t.passengerId),
+    driverId: t.driverId == null ? null : String(t.driverId),
+    pickup: { label: t.pickupAddress ?? '—', coords: { lat: 0, lng: 0 } },
+    dropoff: { label: t.dropoffAddress ?? '—', coords: { lat: 0, lng: 0 } },
+    distanceKm: null,
+    fareRwf: t.estimatedFare ?? null,
+    status: t.status,
+    createdAt: t.createdAt,
+    completedAt: t.completedAt,
+  }));
 }
